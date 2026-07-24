@@ -1,20 +1,32 @@
 "use client";
 
-import { ChangeEvent, useMemo, useState } from "react";
+import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 
 type Risk = "high" | "medium" | "low";
-type ReviewState = "open" | "confirmed" | "corrected" | "dismissed";
-type Filter = "all" | "high" | "medium" | "open";
+type ReviewState = "open" | "auto_approved" | "confirmed" | "corrected" | "dismissed";
+type AnalysisMode = "demo" | "local" | "openai";
 
 type ReviewItem = {
-  id: number;
+  id: string;
+  chapterId: string;
+  chapterTitle: string;
   original: string;
   backTranslation: string;
   braille: string;
   risk: Risk;
+  category: string;
   reason: string;
-  rule: string;
+  recommendation: string;
   state: ReviewState;
+};
+
+type ApiFinding = {
+  id: string;
+  risk: Risk;
+  category: string;
+  reason: string;
+  recommendation: string;
+  autoRelease: boolean;
 };
 
 const brailleLetters: Record<string, string> = {
@@ -24,6 +36,7 @@ const brailleLetters: Record<string, string> = {
   v: "⠧", w: "⠺", x: "⠭", y: "⠽", z: "⠵", ä: "⠜", ö: "⠪",
   ü: "⠳", ß: "⠮", ",": "⠂", ".": "⠲", "-": "⠤", ":": "⠒",
   ";": "⠆", "?": "⠢", "!": "⠖", "/": "⠌", "%": "⠨⠴",
+  "(": "⠶", ")": "⠶", "\"": "⠶",
 };
 
 const digitBraille: Record<string, string> = {
@@ -41,183 +54,425 @@ function toBraille(text: string) {
     }
     inNumber = false;
     if (character === " ") return " ";
+    if (character === "\n") return "\n";
     const lower = character.toLowerCase();
     const capital = character !== lower && /[A-ZÄÖÜ]/.test(character) ? "⠠" : "";
     return capital + (brailleLetters[lower] ?? "⠿");
   }).join("");
 }
 
-const sampleItems: ReviewItem[] = [
-  {
-    id: 1,
-    original: "Die neue Linie ist 12,5 km² groß und startet am 1. August.",
-    backTranslation: "Die neue Linie ist 125 km2 groß und startet am 1 August.",
-    braille: toBraille("Die neue Linie ist 12,5 km² groß und startet am 1. August."),
-    risk: "high",
-    reason: "Zahl, Dezimaltrennzeichen oder Maßeinheit könnten verändert worden sein.",
-    rule: "ZAHL-04 · Zahlen und Maßeinheiten",
-    state: "open",
-  },
-  {
-    id: 2,
-    original: "Dr. Miriam Vogel leitet das neue Projekt.",
-    backTranslation: "Dr Miriam Vogel leitet das neue Projekt.",
-    braille: toBraille("Dr. Miriam Vogel leitet das neue Projekt."),
-    risk: "medium",
-    reason: "Abkürzung mit nachfolgendem Eigennamen erkannt.",
-    rule: "ABK-02 · Abkürzungen im Satz",
-    state: "open",
-  },
-  {
-    id: 3,
-    original: "Das KI-System priorisiert auffällige Textstellen.",
-    backTranslation: "Das KI System priorisiert auffällige Textstellen.",
-    braille: toBraille("Das KI-System priorisiert auffällige Textstellen."),
-    risk: "medium",
-    reason: "Bindestrich in einer Wortzusammensetzung fehlt in der Rückübersetzung.",
-    rule: "WORT-07 · Zusammensetzungen",
-    state: "open",
-  },
-  {
-    id: 4,
-    original: "Die EU-Kommission veröffentlicht ihre Empfehlung im Herbst.",
-    backTranslation: "Die EU Kommission veröffentlicht ihre Empfehlung im Herbst.",
-    braille: toBraille("Die EU-Kommission veröffentlicht ihre Empfehlung im Herbst."),
-    risk: "medium",
-    reason: "Großschreibung und Bindestrich bei einer Institution prüfen.",
-    rule: "NAME-03 · Institutionen und Eigennamen",
-    state: "open",
-  },
-  {
-    id: 5,
-    original: "Weitere Informationen stehen unter www.dzblesen.de bereit.",
-    backTranslation: "Weitere Informationen stehen unter www dzblesen de bereit.",
-    braille: toBraille("Weitere Informationen stehen unter www.dzblesen.de bereit."),
-    risk: "high",
-    reason: "Webadresse enthält mehrere bedeutungstragende Sonderzeichen.",
-    rule: "WEB-01 · URLs und E-Mail-Adressen",
-    state: "open",
-  },
-  {
-    id: 6,
-    original: "Die Redaktion veröffentlicht die nächste Ausgabe am Freitag.",
-    backTranslation: "Die Redaktion veröffentlicht die nächste Ausgabe am Freitag.",
-    braille: toBraille("Die Redaktion veröffentlicht die nächste Ausgabe am Freitag."),
-    risk: "low",
-    reason: "Original und Rückübersetzung stimmen strukturell überein.",
-    rule: "BASIS-01 · Strukturvergleich",
-    state: "confirmed",
-  },
-];
+function simulateBackTranslation(text: string) {
+  return text
+    .replace(/(\d),(\d)/g, "$1$2")
+    .replace(/([\p{L}])[-–]([\p{L}])/gu, "$1 $2")
+    .replace(/\b(www)\./gi, "$1 ")
+    .replace(/\.([a-z]{2,4})\b/gi, " $1")
+    .replace(/\b(Dr|Prof)\./g, "$1")
+    .replace(/(\d)\.\s/g, "$1 ");
+}
 
-function classifySegment(text: string, id: number): ReviewItem {
-  const isWeb = /(https?:\/\/|www\.|[\w.-]+@[\w.-]+)/i.test(text);
-  const hasNumber = /\d/.test(text);
-  const hasAbbreviation = /\b(?:Dr|Prof|bzw|z\. B)\./i.test(text);
-  const hasHyphen = /[\p{L}]-[\p{L}]/u.test(text);
-  const risk: Risk = isWeb || hasNumber ? "high" : hasAbbreviation || hasHyphen ? "medium" : "low";
-  const reason = isWeb
-    ? "Webadresse oder E-Mail-Adresse mit bedeutungstragenden Sonderzeichen erkannt."
-    : hasNumber
-      ? "Zahl, Datum oder Maßeinheit sollte mit dem Original verglichen werden."
-      : hasAbbreviation
-        ? "Kontextabhängige Abkürzung erkannt."
-        : hasHyphen
-          ? "Wortzusammensetzung mit Bindestrich erkannt."
-          : "Keine Auffälligkeit durch das aktuelle Regelset erkannt.";
-  const rule = isWeb ? "WEB-01 · URLs und E-Mail-Adressen"
-    : hasNumber ? "ZAHL-04 · Zahlen und Maßeinheiten"
-      : hasAbbreviation ? "ABK-02 · Abkürzungen im Satz"
-        : hasHyphen ? "WORT-07 · Zusammensetzungen"
-          : "BASIS-01 · Strukturvergleich";
-
+function makeItem(
+  id: string,
+  chapterId: string,
+  chapterTitle: string,
+  original: string,
+): ReviewItem {
+  const backTranslation = simulateBackTranslation(original);
   return {
     id,
-    original: text,
-    backTranslation: text,
-    braille: toBraille(text),
-    risk,
-    reason,
-    rule,
-    state: risk === "low" ? "confirmed" : "open",
+    chapterId,
+    chapterTitle,
+    original,
+    backTranslation,
+    braille: toBraille(original),
+    risk: "low",
+    category: "none",
+    reason: "Wartet auf Analyse.",
+    recommendation: "Automatische Analyse starten.",
+    state: "auto_approved",
   };
 }
 
-const riskLabel: Record<Risk, string> = {
-  high: "Hohes Risiko",
-  medium: "Prüfen",
-  low: "Unauffällig",
-};
+const sampleTexts = [
+  ["chapter-1", "Kapitel 1 · Der neue Nahverkehr", [
+    "Ab dem kommenden Frühjahr fahren die Straßenbahnen häufiger durch die Innenstadt.",
+    "Die neue Linie ist 12,5 km lang und startet am 1. August.",
+    "Dr. Miriam Vogel leitet das Projekt gemeinsam mit der Stadtverwaltung.",
+    "Die Redaktion hat alle Haltestellen in einer Übersicht zusammengefasst.",
+  ]],
+  ["chapter-2", "Kapitel 2 · Technik und Teilhabe", [
+    "Das KI-System priorisiert auffällige Textstellen für die Korrektur.",
+    "Blinde Testlesende begleiten die Entwicklung von Beginn an.",
+    "Weitere Informationen stehen unter www.dzblesen.de bereit.",
+    "Jede menschliche Entscheidung wird für spätere Prüfungen dokumentiert.",
+  ]],
+  ["chapter-3", "Kapitel 3 · Ausblick", [
+    "Die EU-Kommission veröffentlicht ihre Empfehlung im Herbst.",
+    "Die nächste Ausgabe erscheint wie geplant am Freitag.",
+  ]],
+] as const;
+
+const sampleItems = sampleTexts.flatMap(([chapterId, chapterTitle, texts]) =>
+  texts.map((text, index) => {
+    const item = makeItem(`${chapterId}-${index + 1}`, chapterId, chapterTitle, text);
+    const hasHigh = /\d|www\./i.test(text);
+    const hasMedium = /Dr\.|[\p{L}]-[\p{L}]/u.test(text);
+    return {
+      ...item,
+      risk: hasHigh ? "high" as const : hasMedium ? "medium" as const : "low" as const,
+      category: hasHigh ? "number_or_web" : hasMedium ? "context" : "none",
+      reason: hasHigh
+        ? "Zahl, Datum, Einheit oder Webadresse muss bestätigt werden."
+        : hasMedium
+          ? "Abkürzung oder Wortzusammensetzung im Kontext prüfen."
+          : "Keine Auffälligkeit in der automatischen Vorprüfung.",
+      recommendation: hasHigh || hasMedium
+        ? "Original und Rückübersetzung vergleichen."
+        : "Automatisch freigeben; Stichprobe bleibt möglich.",
+      state: hasHigh || hasMedium ? "open" as const : "auto_approved" as const,
+    };
+  }),
+);
 
 const stateLabel: Record<ReviewState, string> = {
-  open: "Offen",
+  open: "Entscheidung nötig",
+  auto_approved: "Automatisch geprüft",
   confirmed: "Bestätigt",
   corrected: "Korrigiert",
   dismissed: "Fehlalarm",
 };
 
-export default function Home() {
-  const [items, setItems] = useState(sampleItems);
-  const [selectedId, setSelectedId] = useState(1);
-  const [filter, setFilter] = useState<Filter>("all");
-  const [showImport, setShowImport] = useState(false);
-  const [importText, setImportText] = useState(
-    "Ab dem 1. Januar gelten neue Regeln. Dr. Weber stellt das KI-System vor. Weitere Hinweise stehen unter www.beispiel.de.",
-  );
-  const [announcement, setAnnouncement] = useState("");
+const riskLabel: Record<Risk, string> = {
+  high: "Kritisch",
+  medium: "Bitte prüfen",
+  low: "Unauffällig",
+};
 
-  const selected = items.find((item) => item.id === selectedId) ?? items[0];
-  const openCount = items.filter((item) => item.state === "open").length;
-  const highCount = items.filter((item) => item.risk === "high" && item.state === "open").length;
-  const reviewedCount = items.length - openCount;
-  const progress = Math.round((reviewedCount / items.length) * 100);
+const modeLabel: Record<AnalysisMode, string> = {
+  demo: "Beispielanalyse",
+  local: "Lokale Regelprüfung",
+  openai: "OpenAI + Regelprüfung",
+};
 
-  const visibleItems = useMemo(() => items.filter((item) => {
-    if (filter === "all") return true;
-    if (filter === "open") return item.state === "open";
-    return item.risk === filter;
-  }), [filter, items]);
+function splitLongParagraph(text: string) {
+  if (text.length <= 650) return [text];
+  const sentences = text.split(/(?<=[.!?])\s+/);
+  const chunks: string[] = [];
+  let current = "";
+  for (const sentence of sentences) {
+    if (current && `${current} ${sentence}`.length > 650) {
+      chunks.push(current);
+      current = sentence;
+    } else {
+      current = current ? `${current} ${sentence}` : sentence;
+    }
+  }
+  if (current) chunks.push(current);
+  return chunks;
+}
 
-  function updateState(state: ReviewState) {
-    setItems((current) => current.map((item) =>
-      item.id === selected.id ? { ...item, state } : item,
-    ));
-    const label = stateLabel[state];
-    setAnnouncement(`Prüfstelle ${selected.id} wurde als „${label}“ gespeichert.`);
+function parseBook(text: string) {
+  const lines = text.replace(/\r/g, "").split("\n");
+  let chapterIndex = 1;
+  let chapterId = "chapter-1";
+  let chapterTitle = "Kapitel 1";
+  let paragraphBuffer: string[] = [];
+  const items: ReviewItem[] = [];
 
-    const currentIndex = visibleItems.findIndex((item) => item.id === selected.id);
-    const next = visibleItems.slice(currentIndex + 1).find((item) => item.state === "open");
-    if (next) setSelectedId(next.id);
+  function flushParagraph() {
+    const paragraph = paragraphBuffer.join(" ").trim();
+    paragraphBuffer = [];
+    if (!paragraph) return;
+    for (const part of splitLongParagraph(paragraph)) {
+      items.push(makeItem(
+        `${chapterId}-${items.filter((item) => item.chapterId === chapterId).length + 1}`,
+        chapterId,
+        chapterTitle,
+        part,
+      ));
+    }
   }
 
-  function runImport() {
-    const segments = importText
-      .split(/(?<=[.!?])\s+/)
-      .map((part) => part.trim())
-      .filter(Boolean)
-      .slice(0, 12);
-    if (!segments.length) {
-      setAnnouncement("Bitte zuerst einen Text eingeben.");
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    const heading = line.match(/^(?:#{1,3}\s+)?(?:Kapitel|Chapter)\s+(.+)$/i)
+      ?? line.match(/^#{1,2}\s+(.+)$/);
+    if (heading) {
+      flushParagraph();
+      const hasContent = items.some((item) => item.chapterId === chapterId);
+      if (hasContent || chapterIndex > 1) chapterIndex += 1;
+      chapterId = `chapter-${chapterIndex}`;
+      chapterTitle = line.replace(/^#{1,3}\s+/, "");
+      continue;
+    }
+    if (!line) {
+      flushParagraph();
+    } else {
+      paragraphBuffer.push(line);
+    }
+  }
+  flushParagraph();
+
+  if (!items.length && text.trim()) {
+    return [makeItem("chapter-1-1", "chapter-1", "Kapitel 1", text.trim())];
+  }
+  return items.slice(0, 500);
+}
+
+export default function Home() {
+  const [items, setItems] = useState<ReviewItem[]>(sampleItems);
+  const [selectedId, setSelectedId] = useState(sampleItems.find((item) => item.state === "open")?.id ?? sampleItems[0].id);
+  const [selectedChapter, setSelectedChapter] = useState("all");
+  const [showAll, setShowAll] = useState(false);
+  const [bookTitle, setBookTitle] = useState("Mobilität & Gesellschaft");
+  const [analysisMode, setAnalysisMode] = useState<AnalysisMode>("demo");
+  const [analysisNotice, setAnalysisNotice] = useState("Beispieldaten – bereit zum Ausprobieren.");
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [analysisProgress, setAnalysisProgress] = useState(0);
+  const [isReleased, setIsReleased] = useState(false);
+  const [showImport, setShowImport] = useState(false);
+  const [importTitle, setImportTitle] = useState("Mein Buch");
+  const [importText, setImportText] = useState(
+    "Kapitel 1 Einführung\n\nAb dem 1. Januar gelten neue Regeln. Dr. Weber stellt das KI-System vor.\n\nWeitere Hinweise stehen unter www.beispiel.de.\n\nKapitel 2 Ausblick\n\nDie nächste Ausgabe erscheint am Freitag.",
+  );
+  const [announcement, setAnnouncement] = useState("");
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    const saved = window.localStorage.getItem("braille-qa-session-v2");
+    if (!saved) return;
+    try {
+      const parsed = JSON.parse(saved) as {
+        items: ReviewItem[];
+        bookTitle: string;
+        analysisMode: AnalysisMode;
+        analysisNotice: string;
+      };
+      if (parsed.items?.length) {
+        const frame = window.requestAnimationFrame(() => {
+          setItems(parsed.items);
+          setBookTitle(parsed.bookTitle);
+          setAnalysisMode(parsed.analysisMode);
+          setAnalysisNotice(parsed.analysisNotice);
+          setSelectedId(parsed.items.find((item) => item.state === "open")?.id ?? parsed.items[0].id);
+        });
+        return () => window.cancelAnimationFrame(frame);
+      }
+    } catch {
+      window.localStorage.removeItem("braille-qa-session-v2");
+    }
+  }, []);
+
+  useEffect(() => {
+    if (analysisMode === "demo") return;
+    window.localStorage.setItem("braille-qa-session-v2", JSON.stringify({
+      items,
+      bookTitle,
+      analysisMode,
+      analysisNotice,
+    }));
+  }, [items, bookTitle, analysisMode, analysisNotice]);
+
+  useEffect(() => {
+    if (!showImport) return;
+    closeButtonRef.current?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setShowImport(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [showImport]);
+
+  const chapters = useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const item of items) seen.set(item.chapterId, item.chapterTitle);
+    return Array.from(seen, ([id, title]) => ({
+      id,
+      title,
+      count: items.filter((item) => item.chapterId === id).length,
+      open: items.filter((item) => item.chapterId === id && item.state === "open").length,
+    }));
+  }, [items]);
+
+  const openItems = items.filter((item) => item.state === "open");
+  const highCount = openItems.filter((item) => item.risk === "high").length;
+  const autoCount = items.filter((item) => item.state === "auto_approved").length;
+  const reviewedCount = items.filter((item) => ["confirmed", "corrected", "dismissed"].includes(item.state)).length;
+  const completedCount = items.length - openItems.length;
+  const progress = items.length ? Math.round((completedCount / items.length) * 100) : 0;
+  const selected = items.find((item) => item.id === selectedId) ?? items[0];
+
+  const visibleItems = items.filter((item) => {
+    if (selectedChapter !== "all" && item.chapterId !== selectedChapter) return false;
+    return showAll || item.state === "open";
+  });
+
+  function updateState(state: ReviewState) {
+    if (!selected) return;
+    const nextItems = items.map((item) => item.id === selected.id ? { ...item, state } : item);
+    setItems(nextItems);
+    setAnnouncement(`Prüfstelle wurde als „${stateLabel[state]}“ gespeichert.`);
+    const next = nextItems.find((item) => item.state === "open" && item.id !== selected.id);
+    if (next) {
+      setSelectedId(next.id);
+      setSelectedChapter(next.chapterId);
+    }
+  }
+
+  async function analyzeBook(parsedItems: ReviewItem[], title: string) {
+    setShowImport(false);
+    setBookTitle(title.trim() || "Unbenanntes Buch");
+    setItems(parsedItems);
+    setSelectedId(parsedItems[0].id);
+    setSelectedChapter("all");
+    setShowAll(false);
+    setIsReleased(false);
+    setIsAnalyzing(true);
+    setAnalysisProgress(5);
+    setAnalysisNotice("Das Buch wird kapitelweise geprüft.");
+
+    const results = new Map<string, ApiFinding>();
+    let mode: AnalysisMode = "local";
+    let notice = "Lokale Regelprüfung abgeschlossen.";
+    const batchSize = 20;
+
+    try {
+      for (let start = 0; start < parsedItems.length; start += batchSize) {
+        const batch = parsedItems.slice(start, start + batchSize);
+        const response = await fetch("/api/analyze", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            segments: batch.map((item) => ({
+              id: item.id,
+              chapter: item.chapterTitle,
+              original: item.original,
+              braille: item.braille,
+              backTranslation: item.backTranslation,
+            })),
+          }),
+        });
+        if (!response.ok) throw new Error("analysis_failed");
+        const data = await response.json() as {
+          mode: "local" | "openai";
+          findings: ApiFinding[];
+          notice?: string;
+          model?: string;
+        };
+        mode = data.mode;
+        notice = data.mode === "openai"
+          ? `Semantische OpenAI-Prüfung mit ${data.model ?? "dem Analysemodell"} abgeschlossen.`
+          : data.notice ?? "Lokale Regelprüfung abgeschlossen.";
+        for (const finding of data.findings) results.set(finding.id, finding);
+        setAnalysisProgress(Math.round(((start + batch.length) / parsedItems.length) * 90) + 5);
+      }
+
+      const analyzed = parsedItems.map((item) => {
+        const finding = results.get(item.id);
+        if (!finding) return { ...item, risk: "medium" as const, state: "open" as const };
+        return {
+          ...item,
+          risk: finding.risk,
+          category: finding.category,
+          reason: finding.reason,
+          recommendation: finding.recommendation,
+          state: finding.autoRelease ? "auto_approved" as const : "open" as const,
+        };
+      });
+      setItems(analyzed);
+      setAnalysisMode(mode);
+      setAnalysisNotice(notice);
+      const firstOpen = analyzed.find((item) => item.state === "open");
+      setSelectedId(firstOpen?.id ?? analyzed[0].id);
+      setSelectedChapter(firstOpen?.chapterId ?? "all");
+      setAnalysisProgress(100);
+      setAnnouncement(`${analyzed.length} Abschnitte wurden geprüft. ${analyzed.filter((item) => item.state === "open").length} benötigen eine Entscheidung.`);
+    } catch {
+      const safeItems = parsedItems.map((item) => ({
+        ...item,
+        risk: "medium" as const,
+        reason: "Die automatische Analyse war nicht erreichbar.",
+        recommendation: "Dieser Abschnitt wurde vorsorglich zur manuellen Prüfung vorgelegt.",
+        state: "open" as const,
+      }));
+      setItems(safeItems);
+      setAnalysisMode("local");
+      setAnalysisNotice("Die automatische Analyse war nicht erreichbar. Alle Abschnitte wurden sicherheitshalber zur Prüfung vorgelegt.");
+      setSelectedId(safeItems[0].id);
+      setAnalysisProgress(100);
+    } finally {
+      setTimeout(() => setIsAnalyzing(false), 350);
+    }
+  }
+
+  function startImport() {
+    const parsed = parseBook(importText);
+    if (!parsed.length) {
+      setAnnouncement("Bitte zuerst einen Buchtext eingeben.");
       return;
     }
-    const importedItems = segments.map((segment, index) => classifySegment(segment, index + 1));
-    setItems(importedItems);
-    setSelectedId(1);
-    setFilter("all");
-    setShowImport(false);
-    setAnnouncement(`${importedItems.length} Textabschnitte wurden analysiert.`);
+    void analyzeBook(parsed, importTitle);
   }
 
   function readTextFile(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (!file) return;
+    if (file.size > 5_000_000) {
+      setAnnouncement("Die Datei ist größer als 5 MB. Bitte eine kleinere Textfassung verwenden.");
+      return;
+    }
     const reader = new FileReader();
     reader.onload = () => {
       setImportText(String(reader.result ?? ""));
+      setImportTitle(file.name.replace(/\.(txt|md)$/i, ""));
       setAnnouncement(`Datei „${file.name}“ wurde geladen.`);
     };
     reader.readAsText(file);
   }
+
+  function downloadReport() {
+    const report = {
+      book: bookTitle,
+      generatedAt: new Date().toISOString(),
+      analysis: modeLabel[analysisMode],
+      summary: {
+        segments: items.length,
+        autoApproved: autoCount,
+        humanReviewed: reviewedCount,
+        corrected: items.filter((item) => item.state === "corrected").length,
+        dismissed: items.filter((item) => item.state === "dismissed").length,
+        stillOpen: openItems.length,
+      },
+      chapters,
+      decisions: items.map((item) => ({
+        id: item.id,
+        chapterId: item.chapterId,
+        chapterTitle: item.chapterTitle,
+        original: item.original,
+        backTranslation: item.backTranslation,
+        risk: item.risk,
+        category: item.category,
+        reason: item.reason,
+        recommendation: item.recommendation,
+        state: item.state,
+      })),
+    };
+    const url = URL.createObjectURL(new Blob([JSON.stringify(report, null, 2)], { type: "application/json" }));
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `${bookTitle.toLowerCase().replace(/[^a-z0-9äöüß]+/gi, "-")}-pruefbericht.json`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+    setAnnouncement("Der Prüfbericht wurde heruntergeladen.");
+  }
+
+  function releaseBook() {
+    if (openItems.length) return;
+    setIsReleased(true);
+    setAnnouncement("Das Buch wurde für die nächste Produktionsstufe freigegeben.");
+  }
+
+  if (!selected) return null;
 
   return (
     <main className="app-shell">
@@ -227,27 +482,48 @@ export default function Home() {
         <div className="brand-lockup">
           <div className="brand-mark" aria-hidden="true">⠿</div>
           <div>
-            <p className="eyebrow">dzb lesen · Pilot</p>
+            <p className="eyebrow">dzb lesen · Produktionsassistent</p>
             <h1>Braille QA Copilot</h1>
           </div>
         </div>
-        <div className="topbar-actions">
-          <span className="prototype-badge">Prototyp-Regelwerk</span>
-          <button className="button button-primary" type="button" onClick={() => setShowImport(true)}>
-            <span aria-hidden="true">＋</span> Artikel importieren
-          </button>
-        </div>
+        <nav className="stepper" aria-label="Arbeitsablauf">
+          <span className="step done"><b>1</b> Import</span>
+          <span className="step done"><b>2</b> Analyse</span>
+          <span className={`step ${openItems.length ? "active" : "done"}`} aria-current={openItems.length ? "step" : undefined}><b>3</b> Freigabe</span>
+        </nav>
+        <button className="button button-primary" type="button" onClick={() => setShowImport(true)}>
+          Neues Buch
+        </button>
       </header>
 
       <section className="document-bar" aria-labelledby="document-title">
         <div>
-          <p className="eyebrow">Aktueller Produktionslauf</p>
-          <h2 id="document-title">Mobilität &amp; Gesellschaft · Ausgabe 07/2026</h2>
+          <p className="eyebrow">Aktuelles Buch</p>
+          <h2 id="document-title">{bookTitle}</h2>
+          <p className="document-subtitle">{chapters.length} Kapitel · {items.length} prüfbare Abschnitte · Sitzung wird lokal gespeichert</p>
         </div>
-        <div className="run-meta" aria-label="Produktionsinformationen">
-          <span><strong>DE-Kurzschrift</strong><small>Regeltabelle</small></span>
-          <span><strong>1.284 Wörter</strong><small>Umfang</small></span>
-          <span><strong>vor 3 Min.</strong><small>Analysiert</small></span>
+        <div className={`engine-status engine-${analysisMode}`}>
+          <span className="engine-dot" aria-hidden="true" />
+          <div><strong>{modeLabel[analysisMode]}</strong><small>{analysisNotice}</small></div>
+        </div>
+      </section>
+
+      <section className={`outcome-banner ${openItems.length === 0 ? "outcome-complete" : ""}`} aria-live="polite">
+        <div className="outcome-icon" aria-hidden="true">{openItems.length === 0 ? "✓" : openItems.length}</div>
+        <div className="outcome-copy">
+          <p className="eyebrow">{openItems.length === 0 ? "Analyse abgeschlossen" : "Ihre Aufgabe"}</p>
+          <h2>{openItems.length === 0 ? "Alle Prüfstellen sind entschieden." : `Nur noch ${openItems.length} Stellen brauchen Ihre Entscheidung.`}</h2>
+          <p>{autoCount} unauffällige Abschnitte wurden automatisch geprüft. Sie können diese jederzeit über „Alle anzeigen“ stichprobenartig öffnen.</p>
+        </div>
+        <div className="outcome-actions">
+          <button className="button button-ghost" type="button" onClick={() => setShowAll((value) => !value)}>
+            {showAll ? "Nur offene zeigen" : "Alle anzeigen"}
+          </button>
+          {openItems.length === 0 && (
+            <button className="button button-primary" type="button" onClick={releaseBook}>
+              Buch freigeben
+            </button>
+          )}
         </div>
       </section>
 
@@ -255,81 +531,65 @@ export default function Home() {
         <article className="metric metric-critical">
           <span className="metric-icon" aria-hidden="true">!</span>
           <div><strong>{highCount}</strong><span>Kritische Stellen</span></div>
-          <small>Zahlen, URLs oder Einheiten</small>
+          <small>werden zuerst angezeigt</small>
         </article>
         <article className="metric">
           <span className="metric-icon metric-icon-amber" aria-hidden="true">?</span>
-          <div><strong>{openCount}</strong><span>Noch zu prüfen</span></div>
-          <small>nach Risiko priorisiert</small>
+          <div><strong>{openItems.length}</strong><span>Entscheidungen offen</span></div>
+          <small>menschliche Prüfung erforderlich</small>
         </article>
         <article className="metric">
           <span className="metric-icon metric-icon-green" aria-hidden="true">✓</span>
-          <div><strong>{reviewedCount}</strong><span>Bereits geprüft</span></div>
-          <small>Entscheidungen gespeichert</small>
+          <div><strong>{autoCount}</strong><span>Automatisch geprüft</span></div>
+          <small>kein relevantes Risiko erkannt</small>
         </article>
         <article className="metric progress-card">
-          <div className="progress-copy">
-            <strong>{progress}%</strong><span>Fortschritt</span>
-          </div>
+          <div className="progress-copy"><strong>{progress}%</strong><span>Fertig</span></div>
           <div className="progress-track" role="progressbar" aria-label="Prüffortschritt" aria-valuenow={progress} aria-valuemin={0} aria-valuemax={100}>
             <span style={{ width: `${progress}%` }} />
           </div>
-          <small>{reviewedCount} von {items.length} Abschnitten freigegeben</small>
+          <small>{completedCount} von {items.length} Abschnitten abgeschlossen</small>
         </article>
       </section>
 
-      <section className="workspace" aria-label="Korrekturarbeitsplatz">
-        <aside className="review-list" aria-labelledby="review-list-title">
-          <div className="panel-heading">
-            <div>
-              <p className="eyebrow">Prüfwarteschlange</p>
-              <h2 id="review-list-title">Auffällige Stellen</h2>
-            </div>
-            <span className="count-badge">{visibleItems.length}</span>
+      <section className="workspace book-workspace" aria-label="Korrekturarbeitsplatz">
+        <aside className="chapter-list" aria-labelledby="chapter-title">
+          <div className="panel-heading compact-heading">
+            <div><p className="eyebrow">Navigation</p><h2 id="chapter-title">Kapitel</h2></div>
           </div>
-
-          <div className="filters" aria-label="Prüfstellen filtern">
-            {([
-              ["all", "Alle"],
-              ["open", "Offen"],
-              ["high", "Kritisch"],
-              ["medium", "Prüfen"],
-            ] as [Filter, string][]).map(([value, label]) => (
-              <button
-                className={filter === value ? "filter active" : "filter"}
-                type="button"
-                aria-pressed={filter === value}
-                onClick={() => setFilter(value)}
-                key={value}
-              >
-                {label}
+          <nav aria-label="Kapitel auswählen">
+            <button className={selectedChapter === "all" ? "chapter-button selected" : "chapter-button"} type="button" onClick={() => setSelectedChapter("all")}>
+              <span><strong>Gesamtes Buch</strong><small>{items.length} Abschnitte</small></span>
+              <b>{openItems.length}</b>
+            </button>
+            {chapters.map((chapter) => (
+              <button className={selectedChapter === chapter.id ? "chapter-button selected" : "chapter-button"} type="button" onClick={() => setSelectedChapter(chapter.id)} key={chapter.id}>
+                <span><strong>{chapter.title}</strong><small>{chapter.count} Abschnitte</small></span>
+                <b className={chapter.open ? "" : "chapter-done"}>{chapter.open || "✓"}</b>
               </button>
             ))}
-          </div>
+          </nav>
+          <div className="privacy-note"><span aria-hidden="true">⌂</span><p><strong>Lokal gespeichert</strong>Der Buchtext verbleibt in dieser Sitzung. Für die OpenAI-Prüfung werden nur Analyseabschnitte serverseitig übertragen.</p></div>
+        </aside>
 
+        <aside className="review-list" aria-labelledby="review-list-title">
+          <div className="panel-heading compact-heading">
+            <div><p className="eyebrow">Arbeitsliste</p><h2 id="review-list-title">{showAll ? "Alle Abschnitte" : "Nur offene Stellen"}</h2></div>
+            <span className="count-badge">{visibleItems.length}</span>
+          </div>
           <div className="queue" role="list">
             {visibleItems.map((item) => (
-              <button
-                className={`queue-item ${selected.id === item.id ? "selected" : ""}`}
-                type="button"
-                onClick={() => setSelectedId(item.id)}
-                aria-current={selected.id === item.id ? "true" : undefined}
-                role="listitem"
-                key={item.id}
-              >
+              <button className={`queue-item ${selected.id === item.id ? "selected" : ""}`} type="button" onClick={() => setSelectedId(item.id)} aria-current={selected.id === item.id ? "true" : undefined} role="listitem" key={item.id}>
                 <span className={`risk-dot risk-${item.risk}`} aria-hidden="true" />
                 <span className="queue-copy">
-                  <span className="queue-meta">
-                    <span>Abschnitt {String(item.id).padStart(2, "0")}</span>
-                    <span className={`state state-${item.state}`}>{stateLabel[item.state]}</span>
-                  </span>
+                  <span className="queue-meta"><span>{riskLabel[item.risk]}</span><span className={`state state-${item.state}`}>{stateLabel[item.state]}</span></span>
                   <strong>{item.original}</strong>
                   <small>{item.reason}</small>
                 </span>
               </button>
             ))}
             {!visibleItems.length && (
-              <p className="empty-state">Für diesen Filter gibt es keine Prüfstellen.</p>
+              <div className="empty-state"><span aria-hidden="true">✓</span><strong>Dieses Kapitel ist fertig.</strong><p>Es gibt keine offenen Prüfstellen.</p></div>
             )}
           </div>
         </aside>
@@ -337,89 +597,92 @@ export default function Home() {
         <article className="review-detail" id="review-detail" tabIndex={-1} aria-labelledby="detail-title">
           <div className="panel-heading detail-heading">
             <div>
-              <div className="detail-kicker">
-                <span className={`risk-pill risk-pill-${selected.risk}`}>{riskLabel[selected.risk]}</span>
-                <span>Abschnitt {String(selected.id).padStart(2, "0")}</span>
-              </div>
-              <h2 id="detail-title">Original und Rückübersetzung vergleichen</h2>
+              <div className="detail-kicker"><span className={`risk-pill risk-pill-${selected.risk}`}>{riskLabel[selected.risk]}</span><span>{selected.chapterTitle}</span></div>
+              <h2 id="detail-title">{selected.state === "open" ? "Diese Stelle braucht Ihre Entscheidung" : "Prüfergebnis ansehen"}</h2>
             </div>
             <span className={`state state-${selected.state}`}>{stateLabel[selected.state]}</span>
           </div>
 
           <div className="comparison-grid">
-            <section className="text-panel">
-              <div className="text-panel-label"><span>01</span><h3>Schwarzschrift-Original</h3></div>
-              <p>{selected.original}</p>
-            </section>
-            <section className="text-panel braille-panel" lang="de-Brai">
-              <div className="text-panel-label"><span>02</span><h3>Braille-Ausgabe</h3></div>
-              <p className="braille-text">{selected.braille}</p>
-              <small>Prototypische Vollschrift · noch nicht produktionsgeeignet</small>
-            </section>
-            <section className="text-panel back-panel">
-              <div className="text-panel-label"><span>03</span><h3>Rückübersetzung</h3></div>
-              <p>{selected.backTranslation}</p>
-            </section>
+            <section className="text-panel"><div className="text-panel-label"><span>01</span><h3>Schwarzschrift-Original</h3></div><p>{selected.original}</p></section>
+            <section className="text-panel braille-panel" lang="de-Brai"><div className="text-panel-label"><span>02</span><h3>Braille-Ausgabe</h3></div><p className="braille-text">{selected.braille}</p><small>Demonstrator-Vollschrift · produktiv durch aktuelle dzb-Liblouis-Tabelle ersetzen</small></section>
+            <section className="text-panel back-panel"><div className="text-panel-label"><span>03</span><h3>Rückübersetzung</h3></div><p>{selected.backTranslation}</p></section>
           </div>
 
           <section className={`finding finding-${selected.risk}`} aria-labelledby="finding-title">
             <div className="finding-symbol" aria-hidden="true">{selected.risk === "high" ? "!" : selected.risk === "medium" ? "?" : "✓"}</div>
-            <div>
-              <p className="eyebrow" id="finding-title">Begründung des Prüfvorschlags</p>
-              <strong>{selected.reason}</strong>
-              <small>{selected.rule}</small>
-            </div>
+            <div><p className="eyebrow" id="finding-title">Automatische Einschätzung</p><strong>{selected.reason}</strong><small>{selected.recommendation}</small></div>
           </section>
 
-          <div className="decision-bar">
-            <div>
-              <p className="eyebrow">Menschliche Entscheidung</p>
-              <span>Die endgültige Freigabe bleibt bei der Fachkraft.</span>
+          {selected.state === "open" ? (
+            <div className="decision-bar">
+              <div><p className="eyebrow">Ihre Entscheidung</p><span>Eine Auswahl genügt. Danach öffnet sich automatisch die nächste Stelle.</span></div>
+              <div className="decision-actions">
+                <button className="button button-ghost" type="button" onClick={() => updateState("dismissed")}>Fehlalarm</button>
+                <button className="button button-secondary" type="button" onClick={() => updateState("confirmed")}>Ist korrekt</button>
+                <button className="button button-primary" type="button" onClick={() => updateState("corrected")}>Korrektur speichern</button>
+              </div>
             </div>
-            <div className="decision-actions">
-              <button className="button button-ghost" type="button" onClick={() => updateState("dismissed")}>
-                Fehlalarm
-              </button>
-              <button className="button button-secondary" type="button" onClick={() => updateState("confirmed")}>
-                Als korrekt bestätigen
-              </button>
-              <button className="button button-primary" type="button" onClick={() => updateState("corrected")}>
-                Korrektur speichern
-              </button>
-            </div>
-          </div>
+          ) : (
+            <div className="reviewed-note"><span aria-hidden="true">✓</span><div><strong>{stateLabel[selected.state]}</strong><p>Dieser Abschnitt benötigt keine weitere Entscheidung.</p></div></div>
+          )}
         </article>
       </section>
 
-      <footer className="app-footer">
-        <span>Lokaler Demonstrator · keine Inhalte werden übertragen</span>
-        <span>Regelsatz: Demo 0.1 · Letzte Änderung wird protokolliert</span>
-      </footer>
-
+      <footer className="app-footer"><span>Barrierefreier Demonstrator · Tastatur- und Screenreader-bedienbar</span><button type="button" onClick={downloadReport}>Prüfbericht herunterladen</button></footer>
       <p className="sr-only" aria-live="polite">{announcement}</p>
+
+      {isReleased && (
+        <div className="modal-backdrop" role="presentation">
+          <section className="modal release-modal" role="dialog" aria-modal="true" aria-labelledby="release-title">
+            <div className="release-mark" aria-hidden="true">✓</div>
+            <p className="eyebrow">Produktionsstufe abgeschlossen</p>
+            <h2 id="release-title">{bookTitle} ist freigegeben.</h2>
+            <p>Alle automatisch markierten Stellen wurden entschieden. Laden Sie den Prüfbericht herunter oder beginnen Sie mit einem neuen Buch.</p>
+            <div className="release-summary"><span><strong>{items.length}</strong> Abschnitte</span><span><strong>{autoCount}</strong> automatisch geprüft</span><span><strong>{reviewedCount}</strong> menschlich geprüft</span></div>
+            <div className="modal-actions">
+              <button className="button button-secondary" type="button" onClick={downloadReport}>Prüfbericht laden</button>
+              <button className="button button-primary" type="button" onClick={() => { setIsReleased(false); setShowImport(true); }}>Neues Buch</button>
+            </div>
+          </section>
+        </div>
+      )}
 
       {showImport && (
         <div className="modal-backdrop" role="presentation">
-          <section className="modal" role="dialog" aria-modal="true" aria-labelledby="import-title">
+          <section className="modal import-modal" role="dialog" aria-modal="true" aria-labelledby="import-title">
             <div className="modal-heading">
-              <div>
-                <p className="eyebrow">Neuer Produktionslauf</p>
-                <h2 id="import-title">Artikel importieren</h2>
-              </div>
-              <button className="icon-button" type="button" aria-label="Import schließen" onClick={() => setShowImport(false)}>×</button>
+              <div><p className="eyebrow">Schritt 1 von 3</p><h2 id="import-title">Buch oder Kapitel importieren</h2></div>
+              <button className="icon-button" ref={closeButtonRef} type="button" aria-label="Import schließen" onClick={() => setShowImport(false)}>×</button>
             </div>
-            <p>Text einfügen oder eine UTF-8-Textdatei auswählen. Die Analyse läuft ausschließlich in diesem Browser.</p>
-            <label className="file-picker">
-              <span>Textdatei auswählen</span>
-              <input type="file" accept=".txt,text/plain" onChange={readTextFile} />
+            <p className="modal-intro">TXT- oder Markdown-Datei auswählen. Kapitelüberschriften wie „Kapitel 1 …“ werden automatisch erkannt.</p>
+            <label className="field-label" htmlFor="book-title">Titel</label>
+            <input className="text-input" id="book-title" value={importTitle} onChange={(event) => setImportTitle(event.target.value)} />
+            <label className="file-drop">
+              <span className="file-drop-icon" aria-hidden="true">↑</span>
+              <span><strong>TXT- oder Markdown-Datei auswählen</strong><small>bis 5 MB · der Text wird kapitelweise verarbeitet</small></span>
+              <input type="file" accept=".txt,.md,text/plain,text/markdown" onChange={readTextFile} />
             </label>
-            <label className="textarea-label" htmlFor="article-text">Artikeltext</label>
-            <textarea id="article-text" rows={9} value={importText} onChange={(event) => setImportText(event.target.value)} />
-            <div className="modal-actions">
-              <button className="button button-ghost" type="button" onClick={() => setShowImport(false)}>Abbrechen</button>
-              <button className="button button-primary" type="button" onClick={runImport}>Text analysieren</button>
-            </div>
+            <div className="or-divider"><span>oder Text einfügen</span></div>
+            <label className="field-label" htmlFor="book-text">Buchtext</label>
+            <textarea id="book-text" rows={9} value={importText} onChange={(event) => setImportText(event.target.value)} />
+            <div className="import-assurance"><span aria-hidden="true">✓</span><p><strong>Sicherer Ablauf</strong>Unauffällige Abschnitte werden automatisch freigegeben. Unsichere Fälle bleiben immer in Ihrer Arbeitsliste.</p></div>
+            <div className="modal-actions"><button className="button button-ghost" type="button" onClick={() => setShowImport(false)}>Abbrechen</button><button className="button button-primary" type="button" onClick={startImport}>Buch analysieren</button></div>
           </section>
+        </div>
+      )}
+
+      {isAnalyzing && (
+        <div className="analysis-overlay" role="status" aria-live="polite">
+          <div className="analysis-card">
+            <div className="analysis-mark" aria-hidden="true">⠿</div>
+            <p className="eyebrow">Automatische Vorprüfung</p>
+            <h2>{bookTitle} wird analysiert</h2>
+            <p>Kapitel werden strukturiert, Braille wird erzeugt und Risikostellen werden priorisiert.</p>
+            <div className="analysis-progress"><span style={{ width: `${analysisProgress}%` }} /></div>
+            <strong>{analysisProgress}%</strong>
+            <small>Sie können danach direkt mit den wichtigsten Stellen beginnen.</small>
+          </div>
         </div>
       )}
     </main>

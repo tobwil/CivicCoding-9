@@ -13,9 +13,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Braille QA Copilot · dzb lesen Pilot",
+  title: "Braille QA Copilot · Buchprüfung",
   description:
-    "Barrierefreier Demonstrator für die KI-gestützte Qualitätsprüfung von Braille-Übertragungen.",
+    "Einfacher, barrierefreier Arbeitsablauf für die automatische Vorprüfung ganzer Braille-Bücher und Kapitel.",
 };
 
 export default function RootLayout({
