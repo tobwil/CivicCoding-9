@@ -5,6 +5,7 @@ import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 type Risk = "high" | "medium" | "low";
 type ReviewState = "open" | "auto_approved" | "confirmed" | "corrected" | "dismissed";
 type AnalysisMode = "demo" | "local" | "openai";
+type ApiStatus = "checking" | "server" | "session" | "missing";
 
 type ReviewItem = {
   id: string;
@@ -231,12 +232,48 @@ export default function Home() {
   const [analysisProgress, setAnalysisProgress] = useState(0);
   const [isReleased, setIsReleased] = useState(false);
   const [showImport, setShowImport] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [apiStatus, setApiStatus] = useState<ApiStatus>("checking");
+  const [apiModel, setApiModel] = useState("gpt-5.6-luna");
+  const [draftApiKey, setDraftApiKey] = useState("");
+  const [isTestingKey, setIsTestingKey] = useState(false);
+  const [settingsMessage, setSettingsMessage] = useState("");
   const [importTitle, setImportTitle] = useState("Mein Buch");
   const [importText, setImportText] = useState(
     "Kapitel 1 Einführung\n\nAb dem 1. Januar gelten neue Regeln. Dr. Weber stellt das KI-System vor.\n\nWeitere Hinweise stehen unter www.beispiel.de.\n\nKapitel 2 Ausblick\n\nDie nächste Ausgabe erscheint am Freitag.",
   );
   const [announcement, setAnnouncement] = useState("");
   const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const settingsCloseButtonRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    let active = true;
+    async function loadSettings() {
+      try {
+        const response = await fetch("/api/settings");
+        if (!response.ok) throw new Error("settings_unavailable");
+        const data = await response.json() as {
+          serverKeyConfigured: boolean;
+          model: string;
+        };
+        if (!active) return;
+        setApiModel(data.model);
+        if (data.serverKeyConfigured) {
+          setApiStatus("server");
+        } else {
+          setApiStatus(window.sessionStorage.getItem("braille-qa-openai-key") ? "session" : "missing");
+        }
+      } catch {
+        if (active) {
+          setApiStatus(window.sessionStorage.getItem("braille-qa-openai-key") ? "session" : "missing");
+        }
+      }
+    }
+    void loadSettings();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     const saved = window.localStorage.getItem("braille-qa-session-v2");
@@ -282,6 +319,16 @@ export default function Home() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [showImport]);
+
+  useEffect(() => {
+    if (!showSettings) return;
+    settingsCloseButtonRef.current?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setShowSettings(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [showSettings]);
 
   const chapters = useMemo(() => {
     const seen = new Map<string, string>();
@@ -344,13 +391,17 @@ export default function Home() {
     let mode: AnalysisMode = "local";
     let notice = "Lokale Regelprüfung abgeschlossen.";
     const batchSize = 20;
+    const sessionApiKey = window.sessionStorage.getItem("braille-qa-openai-key");
 
     try {
       for (let start = 0; start < parsedItems.length; start += batchSize) {
         const batch = parsedItems.slice(start, start + batchSize);
         const response = await fetch("/api/analyze", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            ...(sessionApiKey ? { "x-openai-api-key": sessionApiKey } : {}),
+          },
           body: JSON.stringify({
             segments: batch.map((item) => ({
               id: item.id,
@@ -412,6 +463,55 @@ export default function Home() {
     } finally {
       setTimeout(() => setIsAnalyzing(false), 350);
     }
+  }
+
+  async function saveSessionApiKey() {
+    const key = draftApiKey.trim();
+    if (!key) {
+      setSettingsMessage("Bitte zuerst einen API-Schlüssel eingeben.");
+      return;
+    }
+
+    setIsTestingKey(true);
+    setSettingsMessage("Verbindung wird geprüft …");
+    try {
+      const response = await fetch("/api/settings/test", {
+        method: "POST",
+        headers: { "x-openai-api-key": key },
+      });
+      const data = await response.json() as {
+        valid: boolean;
+        source?: "server" | "session";
+        error?: string;
+      };
+      if (!response.ok || !data.valid) {
+        setSettingsMessage(data.error ?? "Der API-Schlüssel konnte nicht bestätigt werden.");
+        return;
+      }
+
+      if (data.source === "server") {
+        window.sessionStorage.removeItem("braille-qa-openai-key");
+        setApiStatus("server");
+      } else {
+        window.sessionStorage.setItem("braille-qa-openai-key", key);
+        setApiStatus("session");
+      }
+      setDraftApiKey("");
+      setSettingsMessage("OpenAI ist verbunden. Neue Analysen laufen jetzt im echten Modus.");
+      setAnnouncement("OpenAI-Verbindung wurde erfolgreich eingerichtet.");
+    } catch {
+      setSettingsMessage("Die Verbindung konnte gerade nicht geprüft werden.");
+    } finally {
+      setIsTestingKey(false);
+    }
+  }
+
+  function removeSessionApiKey() {
+    window.sessionStorage.removeItem("braille-qa-openai-key");
+    setDraftApiKey("");
+    setApiStatus("missing");
+    setSettingsMessage("Der Sitzungsschlüssel wurde entfernt.");
+    setAnnouncement("OpenAI-Sitzungsschlüssel wurde entfernt.");
   }
 
   function startImport() {
@@ -495,9 +595,23 @@ export default function Home() {
             <h1>Braille QA Copilot</h1>
           </div>
         </div>
-        <button className="button button-secondary" type="button" onClick={() => setShowImport(true)}>
-          Buch wechseln
-        </button>
+        <div className="topbar-actions">
+          <button className="settings-button" type="button" onClick={() => { setSettingsMessage(""); setShowSettings(true); }}>
+            <span className={`connection-dot connection-${apiStatus}`} aria-hidden="true" />
+            <span>
+              <strong>Einstellungen</strong>
+              <small>
+                {apiStatus === "server" && "OpenAI serverseitig verbunden"}
+                {apiStatus === "session" && "OpenAI für diese Sitzung verbunden"}
+                {apiStatus === "missing" && "OpenAI-Schlüssel fehlt"}
+                {apiStatus === "checking" && "Verbindung wird geprüft"}
+              </small>
+            </span>
+          </button>
+          <button className="button button-secondary" type="button" onClick={() => setShowImport(true)}>
+            Buch wechseln
+          </button>
+        </div>
       </header>
 
       <section className="document-bar" aria-labelledby="document-title">
@@ -624,6 +738,71 @@ export default function Home() {
             <div className="modal-actions">
               <button className="button button-secondary" type="button" onClick={downloadReport}>Prüfbericht laden</button>
               <button className="button button-primary" type="button" onClick={() => { setIsReleased(false); setShowImport(true); }}>Neues Buch</button>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {showSettings && (
+        <div className="modal-backdrop" role="presentation">
+          <section className="modal settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+            <div className="modal-heading">
+              <div><p className="eyebrow">Verbindung</p><h2 id="settings-title">OpenAI-Einstellungen</h2></div>
+              <button className="icon-button" ref={settingsCloseButtonRef} type="button" aria-label="Einstellungen schließen" onClick={() => setShowSettings(false)}>×</button>
+            </div>
+
+            {apiStatus === "server" ? (
+              <div className="connection-card connection-card-success">
+                <span aria-hidden="true">✓</span>
+                <div>
+                  <strong>Serverseitig verbunden</strong>
+                  <p>Der sicher hinterlegte Schlüssel wird automatisch verwendet. Im Browser ist keine Eingabe nötig.</p>
+                </div>
+              </div>
+            ) : (
+              <>
+                <p className="modal-intro">Es ist kein serverseitiger Schlüssel hinterlegt. Sie können OpenAI für diesen Browser-Tab verbinden.</p>
+                <label className="field-label" htmlFor="openai-key">OpenAI API-Schlüssel</label>
+                <input
+                  className="text-input api-key-input"
+                  id="openai-key"
+                  type="password"
+                  value={draftApiKey}
+                  autoComplete="off"
+                  spellCheck={false}
+                  placeholder="sk-…"
+                  onChange={(event) => { setDraftApiKey(event.target.value); setSettingsMessage(""); }}
+                />
+                <div className="privacy-note">
+                  <span aria-hidden="true">⌁</span>
+                  <p><strong>Nur für diese Sitzung</strong>Der Schlüssel bleibt ausschließlich im Sitzungsspeicher dieses Browser-Tabs und verschwindet beim Schließen. Er wird weder im Projekt noch im Prüfbericht gespeichert.</p>
+                </div>
+                {apiStatus === "session" && (
+                  <div className="connection-card connection-card-success compact">
+                    <span aria-hidden="true">✓</span>
+                    <div><strong>OpenAI ist verbunden</strong><p>Neue Buchanalysen nutzen den echten Modus.</p></div>
+                  </div>
+                )}
+              </>
+            )}
+
+            <div className="settings-meta">
+              <span>Modell</span>
+              <strong>{apiModel}</strong>
+            </div>
+            {settingsMessage && <p className="settings-message" role="status">{settingsMessage}</p>}
+            <div className="modal-actions">
+              {apiStatus === "session" && (
+                <button className="button button-ghost danger-button" type="button" onClick={removeSessionApiKey}>
+                  Schlüssel entfernen
+                </button>
+              )}
+              <button className="button button-ghost" type="button" onClick={() => setShowSettings(false)}>Schließen</button>
+              {apiStatus !== "server" && (
+                <button className="button button-primary" type="button" disabled={isTestingKey} onClick={() => void saveSessionApiKey()}>
+                  {isTestingKey ? "Verbindung wird geprüft …" : apiStatus === "session" ? "Anderen Schlüssel verwenden" : "Prüfen & verbinden"}
+                </button>
+              )}
             </div>
           </section>
         </div>

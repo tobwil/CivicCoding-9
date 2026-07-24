@@ -38,8 +38,52 @@ test("renders the Braille QA workspace", async () => {
   assert.match(html, /Nur noch .* Stellen brauchen Ihre Entscheidung/);
   assert.match(html, /Offene Stellen/);
   assert.match(html, /Diese Stelle braucht Ihre Entscheidung/);
+  assert.match(html, /Einstellungen/);
   assert.match(html, /Buch wechseln/);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape/);
+});
+
+test("reports whether a server-side OpenAI key is configured", async () => {
+  const worker = await createWorker();
+  const response = await worker.fetch(
+    new Request("http://localhost/api/settings"),
+    {
+      ASSETS: {
+        fetch: async () => new Response("Not found", { status: 404 }),
+      },
+    },
+    {
+      waitUntil() {},
+      passThroughOnException() {},
+    },
+  );
+
+  assert.equal(response.status, 200);
+  const result = await response.json();
+  assert.equal(result.serverKeyConfigured, false);
+  assert.equal(typeof result.model, "string");
+});
+
+test("rejects an empty session API key without contacting OpenAI", async () => {
+  const worker = await createWorker();
+  const response = await worker.fetch(
+    new Request("http://localhost/api/settings/test", {
+      method: "POST",
+    }),
+    {
+      ASSETS: {
+        fetch: async () => new Response("Not found", { status: 404 }),
+      },
+    },
+    {
+      waitUntil() {},
+      passThroughOnException() {},
+    },
+  );
+
+  assert.equal(response.status, 400);
+  const result = await response.json();
+  assert.equal(result.valid, false);
 });
 
 test("analyzes book segments safely without an API key", async () => {

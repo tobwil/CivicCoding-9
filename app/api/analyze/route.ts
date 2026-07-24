@@ -114,7 +114,8 @@ export async function POST(request: Request) {
     }
 
     const fallback = parsed.data.segments.map(localFinding);
-    const apiKey = process.env.OPENAI_API_KEY;
+    const sessionApiKey = request.headers.get("x-openai-api-key")?.trim();
+    const apiKey = process.env.OPENAI_API_KEY || sessionApiKey;
     if (!apiKey) {
       return NextResponse.json({
         mode: "local",

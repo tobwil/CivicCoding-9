@@ -166,6 +166,57 @@ h3 {
   gap: 0.75rem;
 }
 
+.settings-button {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  min-height: 48px;
+  padding: 0.45rem 0.75rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 0.65rem;
+  background: rgba(255, 255, 255, 0.72);
+  cursor: pointer;
+  text-align: left;
+}
+
+.settings-button:hover {
+  border-color: #96b4a1;
+  background: white;
+}
+
+.settings-button > span:last-child {
+  display: grid;
+  gap: 0.1rem;
+}
+
+.settings-button strong {
+  font-size: 0.76rem;
+}
+
+.settings-button small {
+  color: var(--muted);
+  font-size: 0.62rem;
+}
+
+.connection-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #98a39b;
+  box-shadow: 0 0 0 4px #eef1ee;
+}
+
+.connection-server,
+.connection-session {
+  background: #16845c;
+  box-shadow: 0 0 0 4px #dff2e8;
+}
+
+.connection-missing {
+  background: var(--amber);
+  box-shadow: 0 0 0 4px var(--amber-soft);
+}
+
 .prototype-badge,
 .count-badge,
 .state,
@@ -199,6 +250,12 @@ h3 {
 
 .button:hover {
   transform: translateY(-1px);
+}
+
+.button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+  transform: none;
 }
 
 .button-primary {
@@ -758,6 +815,97 @@ textarea {
   margin-top: 1rem;
 }
 
+.settings-modal {
+  width: min(560px, 100%);
+}
+
+.api-key-input {
+  font-family: var(--font-geist-mono), monospace;
+  letter-spacing: 0.04em;
+}
+
+.privacy-note,
+.connection-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  margin-top: 1rem;
+  padding: 0.9rem;
+  border-radius: 0.7rem;
+}
+
+.privacy-note {
+  border: 1px solid #d9e2dc;
+  background: #f5f7f5;
+}
+
+.privacy-note > span,
+.connection-card > span {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: white;
+  color: var(--green);
+  font-weight: 800;
+}
+
+.privacy-note p,
+.connection-card p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.5;
+}
+
+.privacy-note strong,
+.connection-card strong {
+  display: block;
+  margin-bottom: 0.15rem;
+  color: var(--ink);
+  font-size: 0.76rem;
+}
+
+.connection-card-success {
+  border: 1px solid #b8d9c7;
+  background: var(--green-soft);
+}
+
+.connection-card.compact {
+  padding: 0.75rem 0.9rem;
+}
+
+.settings-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 1rem;
+  padding: 0.7rem 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
+.settings-meta strong {
+  color: var(--ink);
+  font-family: var(--font-geist-mono), monospace;
+}
+
+.settings-message {
+  margin: 0.8rem 0 0;
+  color: var(--green-dark);
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+
+.danger-button {
+  margin-right: auto;
+  color: var(--red);
+}
+
 @media (max-width: 1100px) {
   .app-shell {
     padding: 0 1.25rem 1.5rem;
@@ -854,6 +1002,30 @@ textarea {
 
   .topbar-actions .button {
     width: 100%;
+  }
+
+  .topbar-actions,
+  .settings-button {
+    width: 100%;
+  }
+
+  .topbar-actions {
+    align-items: stretch;
+    flex-direction: column;
+    padding-bottom: 1rem;
+  }
+
+  .modal-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .modal-actions .button {
+    width: 100%;
+  }
+
+  .danger-button {
+    margin-right: 0;
   }
 
   .summary-grid {
