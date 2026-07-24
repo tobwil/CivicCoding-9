@@ -20,6 +20,7 @@ type AnalysisMode = "demo" | "local" | "openai";
 type ApiStatus = "checking" | "server" | "session" | "missing";
 type ReviewMode = "print_to_braille" | "braille_review";
 type ImportMode = "print" | "braille";
+type DocumentView = "parallel" | "original" | "braille" | "back";
 type ImportPreview =
   | { mode: "print"; result: BookImportResult }
   | { mode: "braille"; result: BrailleImportResult };
@@ -281,6 +282,9 @@ export default function Home() {
   const [analysisProgress, setAnalysisProgress] = useState(0);
   const [isReleased, setIsReleased] = useState(false);
   const [showImport, setShowImport] = useState(false);
+  const [showImportDocument, setShowImportDocument] = useState(false);
+  const [showDocument, setShowDocument] = useState(false);
+  const [documentView, setDocumentView] = useState<DocumentView>("parallel");
   const [showSettings, setShowSettings] = useState(false);
   const [apiStatus, setApiStatus] = useState<ApiStatus>("checking");
   const [apiModel, setApiModel] = useState("gpt-5.6-luna");
@@ -302,6 +306,7 @@ export default function Home() {
   const [announcement, setAnnouncement] = useState("");
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const settingsCloseButtonRef = useRef<HTMLButtonElement>(null);
+  const documentCloseButtonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     let active = true;
@@ -370,15 +375,20 @@ export default function Home() {
 
   useEffect(() => {
     if (analysisMode === "demo") return;
-    window.localStorage.setItem("braille-qa-session-v2", JSON.stringify({
-      items,
-      bookTitle,
-      analysisMode,
-      analysisNotice,
-      sourceFormat,
-      translationEngine,
-      reviewMode,
-    }));
+    try {
+      window.localStorage.setItem("braille-qa-session-v2", JSON.stringify({
+        items,
+        bookTitle,
+        analysisMode,
+        analysisNotice,
+        sourceFormat,
+        translationEngine,
+        reviewMode,
+      }));
+    } catch {
+      // Große Bücher können die Browser-Speichergrenze überschreiten.
+      // Die laufende Prüfung bleibt vollständig im Arbeitsspeicher erhalten.
+    }
   }, [items, bookTitle, analysisMode, analysisNotice, sourceFormat, translationEngine, reviewMode]);
 
   useEffect(() => {
@@ -400,6 +410,16 @@ export default function Home() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [showSettings]);
+
+  useEffect(() => {
+    if (!showDocument) return;
+    documentCloseButtonRef.current?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setShowDocument(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [showDocument]);
 
   const chapters = useMemo(() => {
     const seen = new Map<string, string>();
@@ -593,6 +613,7 @@ export default function Home() {
 
   function previewPastedText() {
     try {
+      setShowImportDocument(false);
       if (importMode === "braille") {
         if (!brailleText.trim()) {
           setImportError("Bitte zuerst Unicode-Braille eingeben oder eine Datei auswählen.");
@@ -669,6 +690,7 @@ export default function Home() {
     setIsReadingImport(true);
     setImportError("");
     setImportPreview(null);
+    setShowImportDocument(false);
     try {
       if (importMode === "braille") {
         const preview = await parseBrailleFile(file, brailleReferenceText);
@@ -753,6 +775,7 @@ export default function Home() {
 
   function openImport() {
     setImportPreview(null);
+    setShowImportDocument(false);
     setImportError("");
     setShowImport(true);
   }
@@ -783,6 +806,9 @@ export default function Home() {
                 {apiStatus === "checking" && "Verbindung wird geprüft"}
               </small>
             </span>
+          </button>
+          <button className="button button-secondary" type="button" onClick={() => { setDocumentView("parallel"); setShowDocument(true); }}>
+            Gesamtdokument
           </button>
           <button className="button button-secondary" type="button" onClick={openImport}>
             Buch wechseln
@@ -920,6 +946,80 @@ export default function Home() {
             <div className="modal-actions">
               <button className="button button-secondary" type="button" onClick={downloadReport}>Prüfbericht laden</button>
               <button className="button button-primary" type="button" onClick={() => { setIsReleased(false); openImport(); }}>Neues Buch</button>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {showDocument && (
+        <div className="modal-backdrop" role="presentation">
+          <section className="modal document-modal" role="dialog" aria-modal="true" aria-labelledby="document-view-title">
+            <div className="modal-heading">
+              <div>
+                <p className="eyebrow">Gesamtdokument · {items.length} Abschnitte</p>
+                <h2 id="document-view-title">{bookTitle}</h2>
+              </div>
+              <button className="icon-button" ref={documentCloseButtonRef} type="button" aria-label="Gesamtdokument schließen" onClick={() => setShowDocument(false)}>×</button>
+            </div>
+            <div className="document-tabs" role="tablist" aria-label="Dokumentdarstellung">
+              {([
+                ["parallel", "Vergleich"],
+                ["original", "Schwarzschrift"],
+                ["braille", "Braille"],
+                ["back", "Rückübersetzung"],
+              ] as const).map(([view, label]) => (
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={documentView === view}
+                  className={documentView === view ? "active" : ""}
+                  onClick={() => setDocumentView(view)}
+                  key={view}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <div className="whole-document" role="tabpanel">
+              {chapters.map((chapter, chapterIndex) => (
+                <section className="whole-document-chapter" key={chapter.id}>
+                  <header>
+                    <span>{String(chapterIndex + 1).padStart(2, "0")}</span>
+                    <div><h3>{chapter.title}</h3><small>{chapter.count} Abschnitte</small></div>
+                  </header>
+                  <div className={documentView === "parallel" ? "whole-document-parallel" : "whole-document-linear"}>
+                    {items.filter((item) => item.chapterId === chapter.id).map((item) => (
+                      documentView === "parallel" ? (
+                        <article className="whole-document-row" key={item.id}>
+                          <div>
+                            <small>Schwarzschrift</small>
+                            <p>{item.original || "Keine Referenz mitgeliefert"}</p>
+                          </div>
+                          <div lang="de-Brai">
+                            <small>Braille</small>
+                            <p className="braille-document-text">{item.braille}</p>
+                          </div>
+                          <div>
+                            <small>Rückübersetzung</small>
+                            <p>{item.backTranslation}</p>
+                          </div>
+                        </article>
+                      ) : (
+                        <p className={documentView === "braille" ? "braille-document-text" : ""} lang={documentView === "braille" ? "de-Brai" : undefined} key={item.id}>
+                          {documentView === "original"
+                            ? item.original || "[Keine Schwarzschrift-Referenz]"
+                            : documentView === "braille"
+                              ? item.braille
+                              : item.backTranslation}
+                        </p>
+                      )
+                    ))}
+                  </div>
+                </section>
+              ))}
+            </div>
+            <div className="modal-actions">
+              <button className="button button-primary" type="button" onClick={() => setShowDocument(false)}>Zur Prüfung zurückkehren</button>
             </div>
           </section>
         </div>
@@ -1112,9 +1212,6 @@ export default function Home() {
                     )}
                   </div>
                 </div>
-                {importPreview.result.truncated && (
-                  <p className="preview-warning">Es werden die ersten 500 Abschnitte verarbeitet.</p>
-                )}
                 <ol className="chapter-preview-list">
                   {importPreview.result.chapters.map((chapter, index) => (
                     <li key={chapter.id}>
@@ -1124,15 +1221,52 @@ export default function Home() {
                     </li>
                   ))}
                 </ol>
+                <button
+                  className="document-preview-toggle"
+                  type="button"
+                  aria-expanded={showImportDocument}
+                  onClick={() => setShowImportDocument((value) => !value)}
+                >
+                  <span>
+                    <strong>{showImportDocument ? "Dokumentvorschau schließen" : "Gesamten Import ansehen"}</strong>
+                    <small>
+                      {importPreview.mode === "print"
+                        ? "Alle erkannten Schwarzschrift-Abschnitte in Lesereihenfolge"
+                        : "Alle erkannten Braille-Seiten und vorhandenen Referenzen"}
+                    </small>
+                  </span>
+                  <span aria-hidden="true">{showImportDocument ? "−" : "+"}</span>
+                </button>
+                {showImportDocument && (
+                  <div className="import-document-preview">
+                    {importPreview.result.chapters.map((chapter) => (
+                      <section key={chapter.id}>
+                        <h3>{chapter.title}</h3>
+                        {importPreview.mode === "print"
+                          ? importPreview.result.blocks
+                            .filter((block) => block.chapterId === chapter.id)
+                            .map((block) => <p key={block.id}>{block.text}</p>)
+                          : importPreview.result.segments
+                            .filter((segment) => segment.chapterId === chapter.id)
+                            .map((segment) => (
+                              <article key={segment.id}>
+                                {segment.reference && <p><small>Schwarzschrift</small>{segment.reference}</p>}
+                                <p className="braille-document-text" lang="de-Brai"><small>Braille</small>{segment.sourceEncoding === "brf" ? brfToUnicode(segment.braille) : segment.braille}</p>
+                              </article>
+                            ))}
+                      </section>
+                    ))}
+                  </div>
+                )}
                 <div className="liblouis-assurance">
                   <span aria-hidden="true">⠿</span>
                   <p>
                     <strong>{importPreview.mode === "print" ? "Nächster Schritt: echte Braille-Übersetzung" : "Nächster Schritt: Braille-Rückübersetzung und Review"}</strong>
                     {importPreview.mode === "print"
-                      ? "Liblouis 3.38.0 übersetzt jeden Abschnitt. Danach startet die Regel- und optional die OpenAI-Prüfung."
+                      ? `Liblouis 3.38.0 übersetzt alle ${importPreview.result.blocks.length} Abschnitte. Danach startet die abschnittsweise Regel- und optional die OpenAI-Prüfung.`
                       : importPreview.result.referenceCount === importPreview.result.segments.length
-                        ? "Liblouis rückübersetzt alle Abschnitte und vergleicht sie mit der mitgelieferten Schwarzschrift."
-                        : "Liblouis rückübersetzt alle Abschnitte. Stellen ohne Schwarzschrift-Referenz bleiben bewusst zur menschlichen Entscheidung offen."}
+                        ? `Liblouis rückübersetzt alle ${importPreview.result.segments.length} Abschnitte und vergleicht sie mit der mitgelieferten Schwarzschrift.`
+                        : `Liblouis rückübersetzt alle ${importPreview.result.segments.length} Abschnitte. Stellen ohne Schwarzschrift-Referenz bleiben bewusst zur menschlichen Entscheidung offen.`}
                   </p>
                 </div>
               </div>
@@ -1142,7 +1276,7 @@ export default function Home() {
             <div className="modal-actions">
               {importPreview ? (
                 <>
-                  <button className="button button-ghost" type="button" onClick={() => { setImportPreview(null); setImportError(""); }}>Andere Datei</button>
+                  <button className="button button-ghost" type="button" onClick={() => { setImportPreview(null); setShowImportDocument(false); setImportError(""); }}>Andere Datei</button>
                   <button className="button button-primary" type="button" onClick={() => void startImport()}>
                     {importPreview.mode === "print" ? "Übersetzen & analysieren" : "Braille prüfen"}
                   </button>

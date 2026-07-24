@@ -8,6 +8,8 @@ deutscher Braille-Publikationen.
 - EPUB-3-Import anhand von Container, Manifest und Spine-Lesereihenfolge
 - Übernahme von Titel, Autor, Sprache, Kapiteln, Absätzen, Listen und Tabellen
 - Strukturvorschau vor der Analyse
+- vollständige Verarbeitung aller erkannten Buchabschnitte ohne 500er-Prototypgrenze
+- Gesamtdokument-Vorschau vor dem Import und zusammenhängende Vergleichsansicht
 - TXT- und Markdown-Import als Fallback
 - echte Übersetzung und Rückübersetzung mit Liblouis 3.38.0
 - zweiter Workflow für vorhandenes Braille aus PEF, BRF oder Unicode-TXT

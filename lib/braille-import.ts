@@ -26,7 +26,6 @@ export type BrailleImportResult = {
   truncated: boolean;
 };
 
-const MAX_SEGMENTS = 500;
 const BRAILLE_ASCII_BY_PATTERN =
   " A1B'K2L@CIF/MSP\"E3H9O6R^DJG>NTQ,*5<-.U8V%[$+X!&;:4\\0Z7(_?W]#Y)=";
 
@@ -77,8 +76,7 @@ function makeResult(
   fileName?: string,
 ): BrailleImportResult {
   const references = referenceBlocks(referenceText);
-  const limited = sourceBlocks.slice(0, MAX_SEGMENTS);
-  const segments = limited.map((block, index) => ({
+  const segments = sourceBlocks.map((block, index) => ({
     ...block,
     id: `${block.chapterId}-${index + 1}`,
     reference: references[index],
@@ -103,7 +101,7 @@ function makeResult(
     segments,
     chapters: Array.from(chapterMap.values()),
     referenceCount: segments.filter((segment) => Boolean(segment.reference)).length,
-    truncated: sourceBlocks.length > MAX_SEGMENTS,
+    truncated: false,
   };
 }
 

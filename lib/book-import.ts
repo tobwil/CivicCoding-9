@@ -33,7 +33,6 @@ export type BookImportResult = {
   truncated: boolean;
 };
 
-const MAX_BLOCKS = 500;
 const MAX_EPUB_ENTRIES = 5_000;
 const MAX_EXTRACTED_TEXT_BYTES = 8_000_000;
 const BLOCK_SELECTOR = "h1,h2,h3,h4,h5,h6,p,li,blockquote,figcaption,dt,dd,tr";
@@ -125,7 +124,6 @@ function chapterBlocks(
   document: Document,
   chapterId: string,
   fallbackTitle: string,
-  remaining: number,
 ) {
   document.querySelectorAll("script,style,noscript,template").forEach((element) => element.remove());
   const firstHeading = Array.from(document.querySelectorAll("h1,h2,h3"))
@@ -135,14 +133,12 @@ function chapterBlocks(
   const blocks: ImportedBlock[] = [];
 
   for (const element of Array.from(document.querySelectorAll(BLOCK_SELECTOR))) {
-    if (blocks.length >= remaining) break;
     if (element.closest("[aria-hidden='true'],nav")) continue;
     if (element.matches("p") && element.closest("li,blockquote,figcaption,td,th")) continue;
     const text = elementText(element);
     if (!text || text.length < 2) continue;
     const kind = inferKind(element);
     for (const part of splitLongText(text)) {
-      if (blocks.length >= remaining) break;
       blocks.push({
         id: `${chapterId}-${blocks.length + 1}`,
         chapterId,
@@ -165,6 +161,7 @@ export function parseTextBook(
   let chapterIndex = 1;
   let chapterId = "chapter-1";
   let chapterTitle = "Kapitel 1";
+  let chapterBlockIndex = 0;
   let paragraphBuffer: string[] = [];
   const blocks: ImportedBlock[] = [];
 
@@ -173,9 +170,9 @@ export function parseTextBook(
     paragraphBuffer = [];
     if (!paragraph) return;
     for (const part of splitLongText(paragraph)) {
-      if (blocks.length >= MAX_BLOCKS) return;
+      chapterBlockIndex += 1;
       blocks.push({
-        id: `${chapterId}-${blocks.filter((block) => block.chapterId === chapterId).length + 1}`,
+        id: `${chapterId}-${chapterBlockIndex}`,
         chapterId,
         chapterTitle,
         kind: "paragraph",
@@ -185,7 +182,6 @@ export function parseTextBook(
   }
 
   for (const rawLine of lines) {
-    if (blocks.length >= MAX_BLOCKS) break;
     const line = rawLine.trim();
     const heading = line.match(/^(?:#{1,3}\s+)?(?:Kapitel|Chapter)\s+(.+)$/i)
       ?? line.match(/^#{1,2}\s+(.+)$/);
@@ -195,6 +191,7 @@ export function parseTextBook(
       if (hasContent || chapterIndex > 1) chapterIndex += 1;
       chapterId = `chapter-${chapterIndex}`;
       chapterTitle = line.replace(/^#{1,3}\s+/, "");
+      chapterBlockIndex = 0;
       continue;
     }
     if (!line) {
@@ -234,7 +231,7 @@ export function parseTextBook(
     title: title.trim() || "Unbenanntes Buch",
     blocks,
     chapters: Array.from(chapterMap.values()),
-    truncated: blocks.length >= MAX_BLOCKS,
+    truncated: false,
   };
 }
 
@@ -300,7 +297,6 @@ export async function parseEpub(file: File): Promise<BookImportResult> {
   let extractedBytes = 0;
 
   for (const id of spineIds) {
-    if (blocks.length >= MAX_BLOCKS) break;
     const item = manifest.get(id);
     if (!item || !/xhtml|html/i.test(item.mediaType)) continue;
     const contentPath = resolveArchivePath(packageDirectory, item.href);
@@ -320,7 +316,7 @@ export async function parseEpub(file: File): Promise<BookImportResult> {
     }
     const chapterId = `chapter-${chapters.length + 1}`;
     const fallbackTitle = `Kapitel ${chapters.length + 1}`;
-    const parsed = chapterBlocks(document, chapterId, fallbackTitle, MAX_BLOCKS - blocks.length);
+    const parsed = chapterBlocks(document, chapterId, fallbackTitle);
     if (!parsed.blocks.length) continue;
     blocks.push(...parsed.blocks);
     chapters.push({
@@ -342,6 +338,6 @@ export async function parseEpub(file: File): Promise<BookImportResult> {
     fileName: file.name,
     blocks,
     chapters,
-    truncated: blocks.length >= MAX_BLOCKS,
+    truncated: false,
   };
 }

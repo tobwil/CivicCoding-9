@@ -72,6 +72,15 @@ test("keeps TXT and Markdown as structured fallback imports", async () => {
   assert.equal(result.blocks.length, 2);
 });
 
+test("keeps complete books beyond the former 500-segment prototype limit", async () => {
+  const { parseTextBook } = await import(`../lib/book-import.ts?complete=${Date.now()}`);
+  const source = Array.from({ length: 620 }, (_, index) => `Abschnitt ${index + 1}.`).join("\n\n");
+  const result = parseTextBook(source, "Vollständiges Buch");
+
+  assert.equal(result.blocks.length, 620);
+  assert.equal(result.truncated, false);
+});
+
 test("translates and back-translates German text with Liblouis 3.38", async () => {
   const require = createRequire(import.meta.url);
   const build = require("liblouis-build");
@@ -123,6 +132,17 @@ test("imports Unicode Braille and pairs optional Schwarzschrift references", asy
   assert.equal(result.segments.length, 2);
   assert.equal(result.referenceCount, 2);
   assert.equal(result.segments[1].reference, "Zweiter Absatz.");
+});
+
+test("keeps complete Braille documents beyond 500 segments", async () => {
+  const { parseUnicodeBraille } = await import(
+    `../lib/braille-import.ts?complete=${Date.now()}`
+  );
+  const source = Array.from({ length: 520 }, () => "⠠⠧⠕⠇⠇⠎⠞⠜⠝⠙⠊⠛⠲").join("\n\n");
+  const result = parseUnicodeBraille(source, "Vollständiges Braille");
+
+  assert.equal(result.segments.length, 520);
+  assert.equal(result.truncated, false);
 });
 
 test("imports PEF pages and BRF Braille ASCII", async () => {
