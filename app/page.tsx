@@ -14,6 +14,7 @@ import {
   parseBrailleFile,
   parseUnicodeBraille,
 } from "@/lib/braille-import";
+import AudioModule from "@/app/audio-module";
 
 type Risk = "high" | "medium" | "low";
 type ReviewState = "open" | "auto_approved" | "confirmed" | "corrected" | "dismissed";
@@ -21,6 +22,7 @@ type AnalysisMode = "local" | "openai";
 type ApiStatus = "checking" | "server" | "session" | "missing";
 type ReviewMode = "print_to_braille" | "braille_review";
 type ImportMode = "print" | "braille";
+type ActiveModule = "braille" | "audio";
 type DocumentView = "parallel" | "original" | "braille" | "back";
 type ImportPreview =
   | { mode: "print"; result: BookImportResult }
@@ -185,6 +187,7 @@ async function createBrailleReviewItems(
 }
 
 export default function Home() {
+  const [activeModule, setActiveModule] = useState<ActiveModule>("braille");
   const [items, setItems] = useState<ReviewItem[]>([]);
   const [selectedId, setSelectedId] = useState("");
   const [selectedChapter, setSelectedChapter] = useState("all");
@@ -203,6 +206,7 @@ export default function Home() {
   const [showSettings, setShowSettings] = useState(false);
   const [apiStatus, setApiStatus] = useState<ApiStatus>("checking");
   const [apiModel, setApiModel] = useState("gpt-5.6-luna");
+  const [apiSpeechModel, setApiSpeechModel] = useState("tts-1-hd");
   const [draftApiKey, setDraftApiKey] = useState("");
   const [isTestingKey, setIsTestingKey] = useState(false);
   const [settingsMessage, setSettingsMessage] = useState("");
@@ -231,9 +235,11 @@ export default function Home() {
         const data = await response.json() as {
           serverKeyConfigured: boolean;
           model: string;
+          speechModel?: string;
         };
         if (!active) return;
         setApiModel(data.model);
+        setApiSpeechModel(data.speechModel ?? "tts-1-hd");
         if (data.serverKeyConfigured) {
           setApiStatus("server");
         } else {
@@ -510,7 +516,7 @@ export default function Home() {
         setApiStatus("session");
       }
       setDraftApiKey("");
-      setSettingsMessage("OpenAI ist verbunden. Neue Prüfungen erhalten jetzt eine zusätzliche inhaltliche Einschätzung.");
+      setSettingsMessage("OpenAI ist verbunden. Inhaltsprüfung und Sprachausgabe sind jetzt verfügbar.");
       setAnnouncement("OpenAI-Verbindung wurde erfolgreich eingerichtet.");
     } catch {
       setSettingsMessage("Die Verbindung konnte gerade nicht geprüft werden.");
@@ -704,7 +710,7 @@ export default function Home() {
 
   return (
     <main className="app-shell">
-      {selected && <a className="skip-link" href="#review-detail">Zur aktuellen Prüfstelle springen</a>}
+      {activeModule === "braille" && selected && <a className="skip-link" href="#review-detail">Zur aktuellen Prüfstelle springen</a>}
 
       <header className="topbar">
         <div className="brand-lockup">
@@ -723,12 +729,12 @@ export default function Home() {
               <small>
                 {apiStatus === "server" && "OpenAI serverseitig verbunden"}
                 {apiStatus === "session" && "OpenAI für diese Sitzung verbunden"}
-                {apiStatus === "missing" && "Zusätzliche KI-Prüfung optional"}
+                {apiStatus === "missing" && "OpenAI-Funktionen optional"}
                 {apiStatus === "checking" && "Verbindung wird geprüft"}
               </small>
             </span>
           </button>
-          {selected ? (
+          {activeModule === "braille" && (selected ? (
             <>
               <button className="button button-secondary" type="button" onClick={() => { setDocumentView("parallel"); setShowDocument(true); }}>
                 Gesamtdokument
@@ -741,11 +747,37 @@ export default function Home() {
             <button className="button button-primary" type="button" onClick={() => startOnboarding("print")}>
               Dokument importieren
             </button>
-          )}
+          ))}
         </div>
       </header>
 
-      {selected ? (
+      <nav className="module-nav" aria-label="Produktionsmodule">
+        <button
+          className={activeModule === "braille" ? "active" : ""}
+          type="button"
+          aria-current={activeModule === "braille" ? "page" : undefined}
+          onClick={() => setActiveModule("braille")}
+        >
+          <span aria-hidden="true">⠿</span>
+          <span><strong>Braille</strong><small>Übertragen und prüfen</small></span>
+        </button>
+        <button
+          className={activeModule === "audio" ? "active" : ""}
+          type="button"
+          aria-current={activeModule === "audio" ? "page" : undefined}
+          onClick={() => setActiveModule("audio")}
+        >
+          <span aria-hidden="true">▶</span>
+          <span><strong>Hörmedien</strong><small>Sprechfassung und Hörprüfung</small></span>
+        </button>
+      </nav>
+
+      {activeModule === "audio" ? (
+        <AudioModule
+          apiStatus={apiStatus}
+          onOpenSettings={() => { setSettingsMessage(""); setShowSettings(true); }}
+        />
+      ) : selected ? (
         <>
       <section className="document-bar" aria-labelledby="document-title">
         <div>
@@ -1040,7 +1072,7 @@ export default function Home() {
                 <span aria-hidden="true">✓</span>
                 <div>
                   <strong>Serverseitig verbunden</strong>
-                  <p>Der sicher hinterlegte Schlüssel wird automatisch verwendet. Im Browser ist keine Eingabe nötig.</p>
+                  <p>Der sicher hinterlegte Schlüssel wird für Inhaltsprüfung und Sprachausgabe verwendet. Im Browser ist keine Eingabe nötig.</p>
                 </div>
               </div>
             ) : (
@@ -1064,15 +1096,17 @@ export default function Home() {
                 {apiStatus === "session" && (
                   <div className="connection-card connection-card-success compact">
                     <span aria-hidden="true">✓</span>
-                    <div><strong>OpenAI ist verbunden</strong><p>Neue Buchprüfungen erhalten eine zusätzliche inhaltliche Einschätzung.</p></div>
+                    <div><strong>OpenAI ist verbunden</strong><p>Inhaltsprüfung und abschnittsweise Sprachausgabe sind verfügbar.</p></div>
                   </div>
                 )}
               </>
             )}
 
             <div className="settings-meta">
-              <span>Modell</span>
+              <span>Inhaltsprüfung</span>
               <strong>{apiModel}</strong>
+              <span>Sprachausgabe</span>
+              <strong>{apiSpeechModel}</strong>
             </div>
             {settingsMessage && <p className="settings-message" role="status">{settingsMessage}</p>}
             <div className="modal-actions">
