@@ -17,7 +17,7 @@ import {
 
 type Risk = "high" | "medium" | "low";
 type ReviewState = "open" | "auto_approved" | "confirmed" | "corrected" | "dismissed";
-type AnalysisMode = "demo" | "local" | "openai";
+type AnalysisMode = "local" | "openai";
 type ApiStatus = "checking" | "server" | "session" | "missing";
 type ReviewMode = "print_to_braille" | "braille_review";
 type ImportMode = "print" | "braille";
@@ -52,114 +52,6 @@ type ApiFinding = {
   autoRelease: boolean;
 };
 
-const brailleLetters: Record<string, string> = {
-  a: "⠁", b: "⠃", c: "⠉", d: "⠙", e: "⠑", f: "⠋", g: "⠛",
-  h: "⠓", i: "⠊", j: "⠚", k: "⠅", l: "⠇", m: "⠍", n: "⠝",
-  o: "⠕", p: "⠏", q: "⠟", r: "⠗", s: "⠎", t: "⠞", u: "⠥",
-  v: "⠧", w: "⠺", x: "⠭", y: "⠽", z: "⠵", ä: "⠜", ö: "⠪",
-  ü: "⠳", ß: "⠮", ",": "⠂", ".": "⠲", "-": "⠤", ":": "⠒",
-  ";": "⠆", "?": "⠢", "!": "⠖", "/": "⠌", "%": "⠨⠴",
-  "(": "⠶", ")": "⠶", "\"": "⠶",
-};
-
-const digitBraille: Record<string, string> = {
-  "1": "⠁", "2": "⠃", "3": "⠉", "4": "⠙", "5": "⠑",
-  "6": "⠋", "7": "⠛", "8": "⠓", "9": "⠊", "0": "⠚",
-};
-
-function toBraille(text: string) {
-  let inNumber = false;
-  return Array.from(text).map((character) => {
-    if (digitBraille[character]) {
-      const prefix = inNumber ? "" : "⠼";
-      inNumber = true;
-      return prefix + digitBraille[character];
-    }
-    inNumber = false;
-    if (character === " ") return " ";
-    if (character === "\n") return "\n";
-    const lower = character.toLowerCase();
-    const capital = character !== lower && /[A-ZÄÖÜ]/.test(character) ? "⠠" : "";
-    return capital + (brailleLetters[lower] ?? "⠿");
-  }).join("");
-}
-
-function simulateBackTranslation(text: string) {
-  return text
-    .replace(/(\d),(\d)/g, "$1$2")
-    .replace(/([\p{L}])[-–]([\p{L}])/gu, "$1 $2")
-    .replace(/\b(www)\./gi, "$1 ")
-    .replace(/\.([a-z]{2,4})\b/gi, " $1")
-    .replace(/\b(Dr|Prof)\./g, "$1")
-    .replace(/(\d)\.\s/g, "$1 ");
-}
-
-function makeItem(
-  id: string,
-  chapterId: string,
-  chapterTitle: string,
-  original: string,
-): ReviewItem {
-  const backTranslation = simulateBackTranslation(original);
-  return {
-    id,
-    chapterId,
-    chapterTitle,
-    original,
-    backTranslation,
-    braille: toBraille(original),
-    risk: "low",
-    category: "none",
-    reason: "Wartet auf Analyse.",
-    recommendation: "Automatische Analyse starten.",
-    state: "auto_approved",
-    hasReference: true,
-    sourceMode: "generated",
-    brailleProfile: "de-g0",
-  };
-}
-
-const sampleTexts = [
-  ["chapter-1", "Kapitel 1 · Der neue Nahverkehr", [
-    "Ab dem kommenden Frühjahr fahren die Straßenbahnen häufiger durch die Innenstadt.",
-    "Die neue Linie ist 12,5 km lang und startet am 1. August.",
-    "Dr. Miriam Vogel leitet das Projekt gemeinsam mit der Stadtverwaltung.",
-    "Die Redaktion hat alle Haltestellen in einer Übersicht zusammengefasst.",
-  ]],
-  ["chapter-2", "Kapitel 2 · Technik und Teilhabe", [
-    "Das KI-System priorisiert auffällige Textstellen für die Korrektur.",
-    "Blinde Testlesende begleiten die Entwicklung von Beginn an.",
-    "Weitere Informationen stehen unter www.dzblesen.de bereit.",
-    "Jede menschliche Entscheidung wird für spätere Prüfungen dokumentiert.",
-  ]],
-  ["chapter-3", "Kapitel 3 · Ausblick", [
-    "Die EU-Kommission veröffentlicht ihre Empfehlung im Herbst.",
-    "Die nächste Ausgabe erscheint wie geplant am Freitag.",
-  ]],
-] as const;
-
-const sampleItems = sampleTexts.flatMap(([chapterId, chapterTitle, texts]) =>
-  texts.map((text, index) => {
-    const item = makeItem(`${chapterId}-${index + 1}`, chapterId, chapterTitle, text);
-    const hasHigh = /\d|www\./i.test(text);
-    const hasMedium = /Dr\.|[\p{L}]-[\p{L}]/u.test(text);
-    return {
-      ...item,
-      risk: hasHigh ? "high" as const : hasMedium ? "medium" as const : "low" as const,
-      category: hasHigh ? "number_or_web" : hasMedium ? "context" : "none",
-      reason: hasHigh
-        ? "Zahl, Datum, Einheit oder Webadresse muss bestätigt werden."
-        : hasMedium
-          ? "Abkürzung oder Wortzusammensetzung im Kontext prüfen."
-          : "Keine Auffälligkeit in der automatischen Vorprüfung.",
-      recommendation: hasHigh || hasMedium
-        ? "Original und Rückübersetzung vergleichen."
-        : "Automatisch freigeben; Stichprobe bleibt möglich.",
-      state: hasHigh || hasMedium ? "open" as const : "auto_approved" as const,
-    };
-  }),
-);
-
 const stateLabel: Record<ReviewState, string> = {
   open: "Entscheidung nötig",
   auto_approved: "Automatisch geprüft",
@@ -175,7 +67,6 @@ const riskLabel: Record<Risk, string> = {
 };
 
 const modeLabel: Record<AnalysisMode, string> = {
-  demo: "Beispielanalyse",
   local: "Lokale Regelprüfung",
   openai: "OpenAI + Regelprüfung",
 };
@@ -294,14 +185,14 @@ async function createBrailleReviewItems(
 }
 
 export default function Home() {
-  const [items, setItems] = useState<ReviewItem[]>(sampleItems);
-  const [selectedId, setSelectedId] = useState(sampleItems.find((item) => item.state === "open")?.id ?? sampleItems[0].id);
+  const [items, setItems] = useState<ReviewItem[]>([]);
+  const [selectedId, setSelectedId] = useState("");
   const [selectedChapter, setSelectedChapter] = useState("all");
   const [showAll, setShowAll] = useState(false);
-  const [bookTitle, setBookTitle] = useState("Mobilität & Gesellschaft");
+  const [bookTitle, setBookTitle] = useState("");
   const [reviewMode, setReviewMode] = useState<ReviewMode>("print_to_braille");
-  const [analysisMode, setAnalysisMode] = useState<AnalysisMode>("demo");
-  const [analysisNotice, setAnalysisNotice] = useState("Beispieldaten – bereit zum Ausprobieren.");
+  const [analysisMode, setAnalysisMode] = useState<AnalysisMode>("local");
+  const [analysisNotice, setAnalysisNotice] = useState("");
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisProgress, setAnalysisProgress] = useState(0);
   const [isReleased, setIsReleased] = useState(false);
@@ -316,16 +207,14 @@ export default function Home() {
   const [isTestingKey, setIsTestingKey] = useState(false);
   const [settingsMessage, setSettingsMessage] = useState("");
   const [importMode, setImportMode] = useState<ImportMode>("print");
-  const [importTitle, setImportTitle] = useState("Mein Buch");
+  const [importTitle, setImportTitle] = useState("");
   const [importPreview, setImportPreview] = useState<ImportPreview | null>(null);
   const [importError, setImportError] = useState("");
   const [isReadingImport, setIsReadingImport] = useState(false);
-  const [sourceFormat, setSourceFormat] = useState("Beispieldaten");
-  const [translationEngine, setTranslationEngine] = useState("Beispieldaten");
-  const [importText, setImportText] = useState(
-    "Kapitel 1 Einführung\n\nAb dem 1. Januar gelten neue Regeln. Dr. Weber stellt das KI-System vor.\n\nWeitere Hinweise stehen unter www.beispiel.de.\n\nKapitel 2 Ausblick\n\nDie nächste Ausgabe erscheint am Freitag.",
-  );
-  const [brailleText, setBrailleText] = useState("⠠⠙⠁⠎ ⠊⠎⠞ ⠑⠊⠝ ⠠⠞⠑⠎⠞⠲");
+  const [sourceFormat, setSourceFormat] = useState("");
+  const [translationEngine, setTranslationEngine] = useState("");
+  const [importText, setImportText] = useState("");
+  const [brailleText, setBrailleText] = useState("");
   const [brailleReferenceText, setBrailleReferenceText] = useState("");
   const [brailleProfileChoice, setBrailleProfileChoice] = useState<BrailleProfileChoice>("auto");
   const [announcement, setAnnouncement] = useState("");
@@ -400,7 +289,7 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    if (analysisMode === "demo") return;
+    if (!items.length) return;
     try {
       window.localStorage.setItem("braille-qa-session-v2", JSON.stringify({
         items,
@@ -808,11 +697,14 @@ export default function Home() {
     setShowImport(true);
   }
 
-  if (!selected) return null;
+  function startOnboarding(mode: ImportMode) {
+    setImportMode(mode);
+    openImport();
+  }
 
   return (
     <main className="app-shell">
-      <a className="skip-link" href="#review-detail">Zur aktuellen Prüfstelle springen</a>
+      {selected && <a className="skip-link" href="#review-detail">Zur aktuellen Prüfstelle springen</a>}
 
       <header className="topbar">
         <div className="brand-lockup">
@@ -835,15 +727,25 @@ export default function Home() {
               </small>
             </span>
           </button>
-          <button className="button button-secondary" type="button" onClick={() => { setDocumentView("parallel"); setShowDocument(true); }}>
-            Gesamtdokument
-          </button>
-          <button className="button button-secondary" type="button" onClick={openImport}>
-            Buch wechseln
-          </button>
+          {selected ? (
+            <>
+              <button className="button button-secondary" type="button" onClick={() => { setDocumentView("parallel"); setShowDocument(true); }}>
+                Gesamtdokument
+              </button>
+              <button className="button button-secondary" type="button" onClick={openImport}>
+                Buch wechseln
+              </button>
+            </>
+          ) : (
+            <button className="button button-primary" type="button" onClick={() => startOnboarding("print")}>
+              Dokument importieren
+            </button>
+          )}
         </div>
       </header>
 
+      {selected ? (
+        <>
       <section className="document-bar" aria-labelledby="document-title">
         <div>
           <p className="eyebrow">
@@ -961,6 +863,76 @@ export default function Home() {
       </section>
 
       <footer className="app-footer"><span>Schwarzschrift & Braille · EPUB 3, PEF, BRF · Liblouis 3.38.0 · Screenreader-bedienbar</span><button type="button" onClick={downloadReport}>Prüfbericht herunterladen</button></footer>
+        </>
+      ) : (
+        <section className="onboarding" aria-labelledby="onboarding-title">
+          <div className="onboarding-hero">
+            <div className="onboarding-copy">
+              <p className="onboarding-kicker"><span aria-hidden="true">✓</span> Startklar ohne Einrichtung</p>
+              <h2 id="onboarding-title">Vom Dokument zu den Stellen, die wirklich geprüft werden müssen.</h2>
+              <p className="onboarding-lead">
+                Importieren Sie Schwarzschrift oder eine vorhandene Braille-Ausgabe. Der Copilot übernimmt Struktur,
+                Übersetzung und Vorprüfung – Sie entscheiden nur noch bei auffälligen Stellen.
+              </p>
+              <div className="onboarding-actions">
+                <button className="button button-primary onboarding-primary" type="button" onClick={() => startOnboarding("print")}>
+                  <span aria-hidden="true">Aa</span>
+                  <span><strong>Schwarzschrift übertragen</strong><small>EPUB, TXT oder Markdown</small></span>
+                </button>
+                <button className="button button-ghost onboarding-secondary" type="button" onClick={() => startOnboarding("braille")}>
+                  <span aria-hidden="true">⠿</span>
+                  <span><strong>Vorhandenes Braille prüfen</strong><small>PEF, BRF oder Unicode-Braille</small></span>
+                </button>
+              </div>
+              <p className="onboarding-support">Auch ganze Bücher werden vollständig verarbeitet. Vor dem Start sehen Sie immer die erkannte Struktur.</p>
+            </div>
+            <div className="onboarding-summary" aria-label="Das übernimmt der Copilot">
+              <p className="eyebrow">Das übernimmt der Copilot</p>
+              <ul>
+                <li><span aria-hidden="true">01</span><div><strong>Kapitel erkennen</strong><small>Lesereihenfolge und Abschnitte kontrollieren</small></div></li>
+                <li><span aria-hidden="true">02</span><div><strong>Mit Liblouis verarbeiten</strong><small>Übersetzen oder vorhandenes Braille rückübersetzen</small></div></li>
+                <li><span aria-hidden="true">03</span><div><strong>Risiken priorisieren</strong><small>Nur auffällige Stellen zur Entscheidung vorlegen</small></div></li>
+              </ul>
+            </div>
+          </div>
+
+          <div className="onboarding-steps" aria-label="Ablauf des Prüflaufs">
+            <article>
+              <span aria-hidden="true">1</span>
+              <div><h3>Dokument wählen</h3><p>Datei hochladen oder Inhalt direkt einfügen.</p></div>
+            </article>
+            <article>
+              <span aria-hidden="true">2</span>
+              <div><h3>Struktur bestätigen</h3><p>Kapitel, Seiten und Referenzen vorab kontrollieren.</p></div>
+            </article>
+            <article>
+              <span aria-hidden="true">3</span>
+              <div><h3>Gezielt entscheiden</h3><p>Prüfstellen bearbeiten und Bericht herunterladen.</p></div>
+            </article>
+          </div>
+
+          <div className="onboarding-ai">
+            <span className={`connection-dot connection-${apiStatus}`} aria-hidden="true" />
+            <div>
+              <strong>
+                {apiStatus === "server" || apiStatus === "session"
+                  ? "Semantische OpenAI-Prüfung ist aktiv"
+                  : "OpenAI ist optional"}
+              </strong>
+              <p>
+                {apiStatus === "server" || apiStatus === "session"
+                  ? "Neue Prüfläufe kombinieren Liblouis und die semantische Analyse."
+                  : "Ohne API-Schlüssel arbeitet der Copilot mit Liblouis und lokalen Regeln. Für eine zusätzliche semantische Prüfung können Sie OpenAI in den Einstellungen verbinden."}
+              </p>
+            </div>
+            {apiStatus !== "server" && apiStatus !== "session" && (
+              <button className="button button-ghost" type="button" onClick={() => { setSettingsMessage(""); setShowSettings(true); }}>
+                OpenAI verbinden
+              </button>
+            )}
+          </div>
+        </section>
+      )}
       <p className="sr-only" aria-live="polite">{announcement}</p>
 
       {isReleased && (
@@ -1216,16 +1188,16 @@ export default function Home() {
                 )}
                 <div className="or-divider"><span>{importMode === "print" ? "oder Text einfügen" : "oder Unicode-Braille einfügen"}</span></div>
                 <label className="field-label" htmlFor="book-title">Titel</label>
-                <input className="text-input" id="book-title" value={importTitle} onChange={(event) => { setImportTitle(event.target.value); setImportPreview(null); }} />
+                <input className="text-input" id="book-title" placeholder="Titel des Dokuments" value={importTitle} onChange={(event) => { setImportTitle(event.target.value); setImportPreview(null); }} />
                 {importMode === "print" ? (
                   <>
                     <label className="field-label" htmlFor="book-text">Buchtext</label>
-                    <textarea id="book-text" rows={7} value={importText} onChange={(event) => { setImportText(event.target.value); setImportPreview(null); }} />
+                    <textarea id="book-text" rows={7} placeholder="Text hier einfügen …" value={importText} onChange={(event) => { setImportText(event.target.value); setImportPreview(null); }} />
                   </>
                 ) : (
                   <>
                     <label className="field-label" htmlFor="braille-text">Unicode-Braille</label>
-                    <textarea className="braille-input" id="braille-text" rows={5} lang="de-Brai" value={brailleText} onChange={(event) => { setBrailleText(event.target.value); setImportPreview(null); }} />
+                    <textarea className="braille-input" id="braille-text" rows={5} lang="de-Brai" placeholder="Unicode-Braille hier einfügen …" value={brailleText} onChange={(event) => { setBrailleText(event.target.value); setImportPreview(null); }} />
                     <label className="field-label optional-label" htmlFor="reference-text">
                       Schwarzschrift-Referenz <span>optional</span>
                     </label>
@@ -1332,7 +1304,14 @@ export default function Home() {
               ) : (
                 <>
                   <button className="button button-ghost" type="button" onClick={() => setShowImport(false)}>Abbrechen</button>
-                  <button className="button button-primary" type="button" disabled={isReadingImport} onClick={previewPastedText}>Struktur erkennen</button>
+                  <button
+                    className="button button-primary"
+                    type="button"
+                    disabled={isReadingImport || (importMode === "print" ? !importText.trim() : !brailleText.trim())}
+                    onClick={previewPastedText}
+                  >
+                    Eingabe prüfen
+                  </button>
                 </>
               )}
             </div>

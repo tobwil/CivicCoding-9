@@ -26,7 +26,7 @@ async function render() {
   );
 }
 
-test("renders the Braille QA workspace", async () => {
+test("renders an empty Braille QA onboarding without example data", async () => {
   const response = await render();
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
@@ -35,13 +35,14 @@ test("renders the Braille QA workspace", async () => {
   assert.match(html, /<html lang="de"/i);
   assert.match(html, /<title>Braille QA Copilot · Buchprüfung<\/title>/i);
   assert.match(html, /Braille QA Copilot/);
-  assert.match(html, /Nur noch .* Stellen brauchen Ihre Entscheidung/);
-  assert.match(html, /Offene Stellen/);
-  assert.match(html, /Diese Stelle braucht Ihre Entscheidung/);
+  assert.match(html, /Vom Dokument zu den Stellen, die wirklich geprüft werden müssen/);
+  assert.match(html, /Schwarzschrift übertragen/);
+  assert.match(html, /Vorhandenes Braille prüfen/);
+  assert.match(html, /Dokument wählen/);
+  assert.match(html, /Struktur bestätigen/);
+  assert.match(html, /Gezielt entscheiden/);
   assert.match(html, /Einstellungen/);
-  assert.match(html, /Buch wechseln/);
-  assert.match(html, /Gesamtdokument/);
-  assert.match(html, /Schwarzschrift &amp; Braille · EPUB 3, PEF, BRF · Liblouis 3\.38\.0/);
+  assert.doesNotMatch(html, /Mobilität &amp; Gesellschaft|www\.beispiel\.de|Beispieldaten/);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape/);
 });
 
