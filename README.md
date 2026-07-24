@@ -36,8 +36,11 @@ Stellen vor, bei denen eine menschliche Entscheidung erforderlich ist.
 - verständliche Auflösung häufiger Abkürzungen, Einheiten und Dezimalzahlen
 - abschnittsweise OpenAI-Sprachausgabe mit auswählbarer Stimme
 - direkter Audioplayer und menschliche Hörfreigabe pro Abschnitt
+- Mehrfachauswahl zum gemeinsamen Vertonen und Freigeben
+- bewusste Option zur Freigabe aller Audiofassungen
+- EPUB-3-Export mit Kapitel-Navigation, MP3-Dateien und Media-Overlays
 - transparente Kennzeichnung der KI-generierten Stimme
-- keine unkontrollierte Stapelerzeugung: Audio entsteht bewusst abschnittsweise
+- Sammelerzeugung bleibt eine ausdrücklich ausgelöste, sichtbare Aktion
 
 ## Bezug zur Challenge
 
@@ -48,9 +51,10 @@ Rückübersetzung und Priorisierung. Korrekturlesende konzentrieren sich auf
 markierte Risikostellen und behalten die Freigabe in der Hand.
 
 Das gemeinsame Inhaltsmodell trägt nun auch das zweite Modul: Es bereitet
-Schwarzschrift als editierbaren Sprechtext vor, erzeugt abschnittsweise Audio
-und führt Fachkräfte durch die Hörprüfung. Der nächste Ausbauschritt ist der
-Export der freigegebenen Kapitel als navigierbares DAISY-/EPUB-Hörmedium.
+Schwarzschrift als editierbaren Sprechtext vor, erzeugt abschnittsweise oder
+für eine bewusst gewählte Auswahl Audio und führt Fachkräfte durch die
+Hörprüfung. Freigegebene Bücher lassen sich anschließend als navigierbares
+EPUB-3-Hörmedium mit synchronisiertem Text und Audio exportieren.
 
 ## Lokale Entwicklung
 

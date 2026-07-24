@@ -10,6 +10,10 @@ import {
   createSpeechSegments,
   SpeechSegment,
 } from "@/lib/speech-preparation";
+import {
+  audioEpubFileName,
+  buildAudioEpub,
+} from "@/lib/audio-epub-export";
 
 type ApiStatus = "checking" | "server" | "session" | "missing";
 type AudioStage = "onboarding" | "preview" | "workspace";
@@ -19,6 +23,7 @@ type Voice = "alloy" | "echo" | "fable" | "nova" | "onyx" | "shimmer";
 type ReviewSegment = SpeechSegment & {
   state: AudioReviewState;
   audioUrl?: string;
+  durationSeconds?: number;
 };
 
 type AudioModuleProps = {
@@ -42,11 +47,15 @@ export default function AudioModule({ apiStatus, onOpenSettings }: AudioModulePr
   const [preview, setPreview] = useState<BookImportResult | null>(null);
   const [segments, setSegments] = useState<ReviewSegment[]>([]);
   const [selectedId, setSelectedId] = useState("");
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [title, setTitle] = useState("");
   const [text, setText] = useState("");
   const [voice, setVoice] = useState<Voice>("nova");
   const [isReading, setIsReading] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isBulkGenerating, setIsBulkGenerating] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState("");
+  const [isExporting, setIsExporting] = useState(false);
   const [showWholeDocument, setShowWholeDocument] = useState(false);
   const [error, setError] = useState("");
   const [announcement, setAnnouncement] = useState("");
@@ -58,6 +67,13 @@ export default function AudioModule({ apiStatus, onOpenSettings }: AudioModulePr
 
   const selected = segments.find((segment) => segment.id === selectedId) ?? segments[0];
   const approvedCount = segments.filter((segment) => segment.state === "approved").length;
+  const audioCount = segments.filter((segment) => segment.audioUrl).length;
+  const selectedCount = selectedIds.size;
+  const selectedWithAudioCount = segments.filter((segment) => selectedIds.has(segment.id) && segment.audioUrl).length;
+  const selectedMissingAudioCount = selectedCount - selectedWithAudioCount;
+  const exportReady = segments.length > 0
+    && approvedCount === segments.length
+    && audioCount === segments.length;
   const progress = segments.length ? Math.round((approvedCount / segments.length) * 100) : 0;
   const chapters = useMemo(() => {
     const map = new Map<string, { id: string; title: string; count: number }>();
@@ -74,7 +90,11 @@ export default function AudioModule({ apiStatus, onOpenSettings }: AudioModulePr
   }, [segments]);
 
   function resetImport() {
+    for (const url of audioUrlsRef.current) URL.revokeObjectURL(url);
+    audioUrlsRef.current.clear();
     setPreview(null);
+    setSegments([]);
+    setSelectedIds(new Set());
     setStage("onboarding");
     setError("");
     setShowWholeDocument(false);
@@ -128,6 +148,7 @@ export default function AudioModule({ apiStatus, onOpenSettings }: AudioModulePr
       state: "open" as const,
     }));
     setSegments(prepared);
+    setSelectedIds(new Set());
     setSelectedId(prepared[0]?.id ?? "");
     setStage("workspace");
     setError("");
@@ -142,49 +163,98 @@ export default function AudioModule({ apiStatus, onOpenSettings }: AudioModulePr
         URL.revokeObjectURL(segment.audioUrl);
         audioUrlsRef.current.delete(segment.audioUrl);
       }
-      return { ...segment, spoken: value, audioUrl: undefined, state: "open" };
+      return {
+        ...segment,
+        spoken: value,
+        audioUrl: undefined,
+        durationSeconds: undefined,
+        state: "open",
+      };
     }));
   }
 
-  async function generateAudio() {
-    if (!selected?.spoken.trim()) return;
-    if (apiStatus !== "server" && apiStatus !== "session") {
-      setError("Verbinden Sie zuerst OpenAI in den Einstellungen.");
-      onOpenSettings();
-      return;
+  async function requestAudio(spoken: string) {
+    const sessionApiKey = window.sessionStorage.getItem("braille-qa-openai-key");
+    const response = await fetch("/api/audio", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(sessionApiKey ? { "x-openai-api-key": sessionApiKey } : {}),
+      },
+      body: JSON.stringify({ text: spoken, voice }),
+    });
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({})) as { error?: string };
+      throw new Error(body.error ?? "Die Sprachausgabe konnte nicht erzeugt werden.");
     }
+    const url = URL.createObjectURL(await response.blob());
+    audioUrlsRef.current.add(url);
+    const durationSeconds = await new Promise<number | undefined>((resolve) => {
+      const audio = new Audio();
+      audio.preload = "metadata";
+      audio.onloadedmetadata = () => resolve(Number.isFinite(audio.duration) ? audio.duration : undefined);
+      audio.onerror = () => resolve(undefined);
+      audio.src = url;
+    });
+    return { url, durationSeconds };
+  }
+
+  function storeAudio(id: string, url: string, durationSeconds?: number) {
+    setSegments((current) => current.map((segment) => {
+      if (segment.id !== id) return segment;
+      if (segment.audioUrl) {
+        URL.revokeObjectURL(segment.audioUrl);
+        audioUrlsRef.current.delete(segment.audioUrl);
+      }
+      return { ...segment, audioUrl: url, durationSeconds, state: "open" };
+    }));
+  }
+
+  function ensureOpenAiConnection() {
+    if (apiStatus === "server" || apiStatus === "session") return true;
+    setError("Verbinden Sie zuerst OpenAI in den Einstellungen.");
+    onOpenSettings();
+    return false;
+  }
+
+  async function generateAudio() {
+    if (!selected?.spoken.trim() || !ensureOpenAiConnection()) return;
 
     setIsGenerating(true);
     setError("");
     try {
-      const sessionApiKey = window.sessionStorage.getItem("braille-qa-openai-key");
-      const response = await fetch("/api/audio", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(sessionApiKey ? { "x-openai-api-key": sessionApiKey } : {}),
-        },
-        body: JSON.stringify({ text: selected.spoken, voice }),
-      });
-      if (!response.ok) {
-        const body = await response.json().catch(() => ({})) as { error?: string };
-        throw new Error(body.error ?? "Die Sprachausgabe konnte nicht erzeugt werden.");
-      }
-      const url = URL.createObjectURL(await response.blob());
-      audioUrlsRef.current.add(url);
-      setSegments((current) => current.map((segment) => {
-        if (segment.id !== selected.id) return segment;
-        if (segment.audioUrl) {
-          URL.revokeObjectURL(segment.audioUrl);
-          audioUrlsRef.current.delete(segment.audioUrl);
-        }
-        return { ...segment, audioUrl: url, state: "open" };
-      }));
+      const generated = await requestAudio(selected.spoken);
+      storeAudio(selected.id, generated.url, generated.durationSeconds);
       setAnnouncement("Die Sprachausgabe ist bereit.");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Die Sprachausgabe konnte nicht erzeugt werden.");
     } finally {
       setIsGenerating(false);
+    }
+  }
+
+  async function generateSelectedAudio() {
+    if (!selectedIds.size || !ensureOpenAiConnection()) return;
+    const targets = segments.filter((segment) => selectedIds.has(segment.id) && !segment.audioUrl);
+    if (!targets.length) {
+      setError("Für die Auswahl sind bereits alle Audiofassungen vorhanden.");
+      return;
+    }
+    setIsBulkGenerating(true);
+    setError("");
+    try {
+      for (let index = 0; index < targets.length; index += 1) {
+        const target = targets[index];
+        setBulkProgress(`${index + 1} von ${targets.length}`);
+        const generated = await requestAudio(target.spoken);
+        storeAudio(target.id, generated.url, generated.durationSeconds);
+      }
+      setAnnouncement(`${targets.length} ausgewählte Audiofassungen wurden erzeugt.`);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Die Sammelerzeugung wurde unterbrochen.");
+    } finally {
+      setBulkProgress("");
+      setIsBulkGenerating(false);
     }
   }
 
@@ -197,6 +267,86 @@ export default function AudioModule({ apiStatus, onOpenSettings }: AudioModulePr
     const next = nextSegments.find((segment) => segment.state === "open" && segment.id !== selected.id);
     if (next) setSelectedId(next.id);
     setAnnouncement("Abschnitt wurde nach der Hörprüfung freigegeben.");
+  }
+
+  function toggleSelection(id: string) {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function selectAllSegments() {
+    setSelectedIds((current) => (
+      current.size === segments.length
+        ? new Set()
+        : new Set(segments.map((segment) => segment.id))
+    ));
+  }
+
+  function approveSelection() {
+    if (!selectedIds.size) return;
+    const withoutAudio = segments.filter((segment) => selectedIds.has(segment.id) && !segment.audioUrl);
+    if (withoutAudio.length) {
+      setError(`${withoutAudio.length} ausgewählte Abschnitte haben noch keine Audiofassung.`);
+      return;
+    }
+    setSegments((current) => current.map((segment) => (
+      selectedIds.has(segment.id) ? { ...segment, state: "approved" as const } : segment
+    )));
+    setSelectedIds(new Set());
+    setError("");
+    setAnnouncement(`${selectedIds.size} Abschnitte wurden gemeinsam freigegeben.`);
+  }
+
+  function approveAll() {
+    if (audioCount !== segments.length) {
+      setError(`Für „Alle freigeben“ fehlen noch ${segments.length - audioCount} Audiofassungen.`);
+      return;
+    }
+    setSegments((current) => current.map((segment) => ({ ...segment, state: "approved" })));
+    setSelectedIds(new Set());
+    setError("");
+    setAnnouncement("Alle Audiofassungen wurden gemeinsam freigegeben.");
+  }
+
+  async function exportAudioEpub() {
+    if (!exportReady) {
+      setError("Der vollständige Export ist bereit, sobald alle Abschnitte Audio besitzen und freigegeben sind.");
+      return;
+    }
+    setIsExporting(true);
+    setError("");
+    try {
+      const exportSegments = await Promise.all(segments.map(async (segment) => ({
+        id: segment.id,
+        chapterId: segment.chapterId,
+        chapterTitle: segment.chapterTitle,
+        kind: segment.kind,
+        spoken: segment.spoken,
+        audio: new Uint8Array(await (await fetch(segment.audioUrl!)).arrayBuffer()),
+        durationSeconds: segment.durationSeconds,
+      })));
+      const bytes = await buildAudioEpub({
+        title,
+        language: preview?.language || "de",
+        voice: voiceOptions.find((option) => option.id === voice)?.label || voice,
+        segments: exportSegments,
+      });
+      const url = URL.createObjectURL(new Blob([bytes], { type: "application/epub+zip" }));
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = audioEpubFileName(title);
+      anchor.click();
+      URL.revokeObjectURL(url);
+      setAnnouncement("Das navigierbare EPUB-3-Hörmedium wurde exportiert.");
+    } catch {
+      setError("Das Hörmedium konnte nicht verpackt werden.");
+    } finally {
+      setIsExporting(false);
+    }
   }
 
   if (stage === "onboarding") {
@@ -360,6 +510,11 @@ export default function AudioModule({ apiStatus, onOpenSettings }: AudioModulePr
           <h2>{approvedCount === segments.length ? "Alle Sprechabschnitte sind freigegeben." : `Noch ${segments.length - approvedCount} Abschnitte anhören und bestätigen.`}</h2>
           <p>Der Sprechtext ist automatisch vorbereitet. Sie behalten Text, Stimme und Freigabe in der Hand.</p>
         </div>
+        <div className="outcome-actions">
+          <button className="button button-secondary" type="button" onClick={() => document.getElementById("audio-export")?.scrollIntoView({ behavior: "smooth" })}>
+            Export ansehen
+          </button>
+        </div>
       </section>
 
       <section className="focus-progress" aria-label="Fortschritt der Hörprüfung">
@@ -375,23 +530,54 @@ export default function AudioModule({ apiStatus, onOpenSettings }: AudioModulePr
             <div><p className="eyebrow">Lesereihenfolge</p><h2 id="audio-queue-title">Sprechabschnitte</h2></div>
             <span className="count-badge">{segments.length}</span>
           </div>
+          <div className="audio-bulk-toolbar" aria-label="Mehrfachaktionen">
+            <label>
+              <input
+                type="checkbox"
+                checked={selectedIds.size === segments.length}
+                onChange={selectAllSegments}
+              />
+              <span>{selectedIds.size === segments.length ? "Auswahl aufheben" : "Alle auswählen"}</span>
+            </label>
+            <span>{selectedCount} ausgewählt · {selectedWithAudioCount} mit Audio</span>
+            <div>
+              <button type="button" disabled={!selectedMissingAudioCount || isBulkGenerating} onClick={() => void generateSelectedAudio()}>
+                {isBulkGenerating ? `Vertonung ${bulkProgress}` : `Auswahl vertonen${selectedMissingAudioCount ? ` (${selectedMissingAudioCount})` : ""}`}
+              </button>
+              <button type="button" disabled={!selectedCount || selectedWithAudioCount !== selectedCount || isBulkGenerating} onClick={approveSelection}>
+                Auswahl freigeben
+              </button>
+              <button type="button" disabled={audioCount !== segments.length || isBulkGenerating} onClick={approveAll}>
+                Alle freigeben
+              </button>
+            </div>
+            <small>Mehrfaches Vertonen erzeugt pro Abschnitt einen OpenAI-Aufruf.</small>
+          </div>
           <div className="queue audio-queue" role="list">
             {segments.map((segment, index) => (
-              <button
-                className={`queue-item ${selected.id === segment.id ? "selected" : ""}`}
-                type="button"
-                role="listitem"
-                aria-current={selected.id === segment.id ? "true" : undefined}
-                onClick={() => { setSelectedId(segment.id); setError(""); }}
-                key={segment.id}
-              >
-                <span className={`audio-state-dot ${segment.state === "approved" ? "approved" : ""}`} aria-hidden="true">{segment.state === "approved" ? "✓" : index + 1}</span>
-                <span className="queue-copy">
-                  <span className="queue-meta"><span>{segment.chapterTitle}</span><span className={`state state-${segment.state}`}>{segment.state === "approved" ? "Freigegeben" : "Offen"}</span></span>
-                  <strong>{segment.spoken}</strong>
-                  <small>{segment.kind === "heading" ? "Überschrift" : "Sprechtext"}</small>
-                </span>
-              </button>
+              <div className={`audio-queue-row ${selected.id === segment.id ? "selected" : ""}`} role="listitem" key={segment.id}>
+                <label className="audio-row-select">
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.has(segment.id)}
+                    onChange={() => toggleSelection(segment.id)}
+                  />
+                  <span className="sr-only">Abschnitt {index + 1} auswählen</span>
+                </label>
+                <button
+                  className="queue-item"
+                  type="button"
+                  aria-current={selected.id === segment.id ? "true" : undefined}
+                  onClick={() => { setSelectedId(segment.id); setError(""); }}
+                >
+                  <span className={`audio-state-dot ${segment.state === "approved" ? "approved" : ""}`} aria-hidden="true">{segment.state === "approved" ? "✓" : index + 1}</span>
+                  <span className="queue-copy">
+                    <span className="queue-meta"><span>{segment.chapterTitle}</span><span className={`state state-${segment.state}`}>{segment.state === "approved" ? "Freigegeben" : segment.audioUrl ? "Audio bereit" : "Offen"}</span></span>
+                    <strong>{segment.spoken}</strong>
+                    <small>{segment.kind === "heading" ? "Überschrift" : "Sprechtext"}</small>
+                  </span>
+                </button>
+              </div>
             ))}
           </div>
         </aside>
@@ -450,6 +636,28 @@ export default function AudioModule({ apiStatus, onOpenSettings }: AudioModulePr
             </div>
           </div>
         </article>
+      </section>
+      <section className={`audio-export-card ${exportReady ? "ready" : ""}`} id="audio-export" aria-labelledby="audio-export-title">
+        <div className="audio-export-mark" aria-hidden="true">{exportReady ? "✓" : "⇩"}</div>
+        <div className="audio-export-copy">
+          <p className="eyebrow">Export</p>
+          <h2 id="audio-export-title">{exportReady ? "Das Hörmedium ist exportbereit." : "Navigierbares EPUB-3-Hörmedium"}</h2>
+          <p>
+            Der Export enthält Kapitel-Navigation, die freigegebenen Sprechtexte, alle MP3-Dateien und
+            Media-Overlays zur Synchronisierung von Text und Audio.
+          </p>
+          <ul aria-label="Exportstatus">
+            <li className="complete"><span aria-hidden="true">✓</span>{segments.length} Abschnitte strukturiert</li>
+            <li className={audioCount === segments.length ? "complete" : ""}><span aria-hidden="true">{audioCount === segments.length ? "✓" : "○"}</span>{audioCount} von {segments.length} mit Audio</li>
+            <li className={approvedCount === segments.length ? "complete" : ""}><span aria-hidden="true">{approvedCount === segments.length ? "✓" : "○"}</span>{approvedCount} von {segments.length} freigegeben</li>
+          </ul>
+        </div>
+        <div className="audio-export-action">
+          <button className="button button-primary" type="button" disabled={!exportReady || isExporting} onClick={() => void exportAudioEpub()}>
+            {isExporting ? "Hörmedium wird verpackt …" : "EPUB-Hörmedium exportieren"}
+          </button>
+          <small>{exportReady ? "Die Datei wird direkt auf dieses Gerät geladen." : "Der Export wird nach vollständiger Audio- und Fachfreigabe aktiv."}</small>
+        </div>
       </section>
       <footer className="app-footer"><span>Lesewege · Hörmedien-Modul · KI-generierte Stimme mit menschlicher Hörprüfung</span><span>Audio entsteht abschnittsweise und wird nicht dauerhaft gespeichert.</span></footer>
       <p className="sr-only" aria-live="polite">{announcement}</p>
