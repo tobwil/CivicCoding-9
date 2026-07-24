@@ -151,6 +151,13 @@ h1 {
   letter-spacing: -0.02em;
 }
 
+.brand-claim {
+  display: block;
+  margin-top: 0.15rem;
+  color: var(--muted);
+  font-size: 0.66rem;
+}
+
 h2 {
   margin-bottom: 0;
   font-size: 1.25rem;

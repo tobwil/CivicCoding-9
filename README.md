@@ -1,25 +1,42 @@
-# Braille QA Copilot
+# Lesewege
 
-Barrierefreier Produktionsprototyp für die KI-gestützte Qualitätssicherung
-deutscher Braille-Publikationen.
+**Ein Inhalt. Mehr Zugänge.**
 
-## Funktionen
+Lesewege ist der Prototyp einer KI-gestützten Produktionsplattform für das
+Deutsche Zentrum für barrierefreies Lesen. Redaktionelle Inhalte sollen einmal
+strukturiert und anschließend in mehrere barrierefreie Medien überführt werden:
+zunächst in qualitätsgesichertes Braille, perspektivisch auch in navigierbare
+DAISY-/EPUB-Hörmedien.
 
-- EPUB-3-Import anhand von Container, Manifest und Spine-Lesereihenfolge
-- Übernahme von Titel, Autor, Sprache, Kapiteln, Absätzen, Listen und Tabellen
-- Strukturvorschau vor der Analyse
-- vollständige Verarbeitung aller erkannten Buchabschnitte ohne 500er-Prototypgrenze
-- Gesamtdokument-Vorschau vor dem Import und zusammenhängende Vergleichsansicht
-- TXT- und Markdown-Import als Fallback
-- echte Übersetzung und Rückübersetzung mit Liblouis 3.38.0
-- zweiter Workflow für vorhandenes Braille aus PEF, BRF oder Unicode-TXT
-- automatische BRF-Erkennung mit auswählbaren deutschen, UEB-, britischen und US-Grade-2-Tabellen
-- optionale Schwarzschrift-Referenz für den direkten Braille-Vergleich
-- sichere Braille-Prüfung ohne Referenz: keine automatische Inhaltsfreigabe
-- deutsche Tabelle `de-g0-detailed.utb`
-- lokale Risikoregeln und optionale semantische OpenAI-Prüfung
-- tastatur- und screenreader-bedienbare Korrekturansicht
+Die KI ersetzt keine Fachkräfte. Sie automatisiert nachvollziehbare
+Produktionsschritte, markiert Risiken und legt den Korrekturlesenden gezielt die
+Stellen vor, bei denen eine menschliche Entscheidung erforderlich ist.
+
+## Aktueller Demonstrator: Braille-Modul
+
+- EPUB-3-Import mit Titel, Autor, Sprache, Kapiteln und Lesereihenfolge
+- vollständige Verarbeitung ganzer Bücher ohne Abschnittsbegrenzung
+- Struktur- und Gesamtdokumentvorschau vor der Verarbeitung
+- TXT und Markdown als einfache Importalternativen
+- regelbasierte Übersetzung und Rückübersetzung mit Liblouis 3.38.0
+- Prüfung vorhandener Braille-Ausgaben aus PEF, BRF oder Unicode-TXT
+- automatische BRF-Erkennung für deutsche und englische Braille-Profile
+- optionale Schwarzschrift-Referenz für einen direkten Inhaltsvergleich
+- lokale Risikoregeln und optionale zusätzliche Inhaltsprüfung mit OpenAI
+- barrierefreie Korrekturansicht für Tastatur, Screenreader und Braillezeile
 - lokaler Sitzungsstand und herunterladbarer Prüfbericht
+
+## Bezug zur Challenge
+
+Der Demonstrator adressiert den ersten Engpass aus Challenge 9: Die
+Qualitätsprüfung nach der Übertragung von Schwarzschrift zu Braille soll
+beschleunigt werden. Lesewege übernimmt dabei Strukturierung, Übersetzung,
+Rückübersetzung und Priorisierung. Korrekturlesende konzentrieren sich auf
+markierte Risikostellen und behalten die Freigabe in der Hand.
+
+Das gemeinsame Inhaltsmodell ist zugleich die Grundlage für das zweite Modul:
+die schnellere Produktion aktueller Zeitschriften als navigierbare
+DAISY-/EPUB-Hörmedien.
 
 ## Lokale Entwicklung
 
@@ -41,7 +58,7 @@ npm test
 ```
 
 Die Tests decken EPUB-, PEF-, BRF- und Unicode-Braille-Import,
-TXT-/Markdown-Fallback, Liblouis-Übersetzung und Rückübersetzung sowie die
+TXT-/Markdown-Import, Liblouis-Übersetzung und Rückübersetzung sowie die
 Serverrouten ab.
 
 ## OpenAI-Verbindung
