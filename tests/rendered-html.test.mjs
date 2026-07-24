@@ -40,6 +40,7 @@ test("renders the Braille QA workspace", async () => {
   assert.match(html, /Diese Stelle braucht Ihre Entscheidung/);
   assert.match(html, /Einstellungen/);
   assert.match(html, /Buch wechseln/);
+  assert.match(html, /EPUB 3 · Liblouis 3\.38\.0/);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape/);
 });
 

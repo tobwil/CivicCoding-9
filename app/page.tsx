@@ -1,6 +1,12 @@
 "use client";
 
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
+import {
+  BookImportResult,
+  ImportedBlock,
+  parseEpub,
+  parseTextBook,
+} from "@/lib/book-import";
 
 type Risk = "high" | "medium" | "low";
 type ReviewState = "open" | "auto_approved" | "confirmed" | "corrected" | "dismissed";
@@ -155,69 +161,47 @@ const modeLabel: Record<AnalysisMode, string> = {
   openai: "OpenAI + Regelprüfung",
 };
 
-function splitLongParagraph(text: string) {
-  if (text.length <= 650) return [text];
-  const sentences = text.split(/(?<=[.!?])\s+/);
-  const chunks: string[] = [];
-  let current = "";
-  for (const sentence of sentences) {
-    if (current && `${current} ${sentence}`.length > 650) {
-      chunks.push(current);
-      current = sentence;
-    } else {
-      current = current ? `${current} ${sentence}` : sentence;
+const importFormatLabel: Record<BookImportResult["format"], string> = {
+  epub: "EPUB 3",
+  markdown: "Markdown",
+  text: "TXT",
+};
+
+async function createLiblouisItems(
+  blocks: ImportedBlock[],
+  onProgress: (value: number) => void,
+) {
+  const { loadLiblouis } = await import("@/lib/liblouis-client");
+  const {
+    backTranslateFromBraille,
+    info,
+    translateToBraille,
+  } = await loadLiblouis();
+  const translated: ReviewItem[] = [];
+
+  for (let index = 0; index < blocks.length; index += 1) {
+    const block = blocks[index];
+    const braille = translateToBraille(block.text);
+    translated.push({
+      id: block.id,
+      chapterId: block.chapterId,
+      chapterTitle: block.chapterTitle,
+      original: block.text,
+      braille,
+      backTranslation: backTranslateFromBraille(braille),
+      risk: "low",
+      category: block.kind,
+      reason: "Wartet auf Analyse.",
+      recommendation: "Automatische Analyse starten.",
+      state: "auto_approved",
+    });
+    if (index % 10 === 0 || index === blocks.length - 1) {
+      onProgress(5 + Math.round(((index + 1) / blocks.length) * 28));
+      await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
     }
   }
-  if (current) chunks.push(current);
-  return chunks;
-}
 
-function parseBook(text: string) {
-  const lines = text.replace(/\r/g, "").split("\n");
-  let chapterIndex = 1;
-  let chapterId = "chapter-1";
-  let chapterTitle = "Kapitel 1";
-  let paragraphBuffer: string[] = [];
-  const items: ReviewItem[] = [];
-
-  function flushParagraph() {
-    const paragraph = paragraphBuffer.join(" ").trim();
-    paragraphBuffer = [];
-    if (!paragraph) return;
-    for (const part of splitLongParagraph(paragraph)) {
-      items.push(makeItem(
-        `${chapterId}-${items.filter((item) => item.chapterId === chapterId).length + 1}`,
-        chapterId,
-        chapterTitle,
-        part,
-      ));
-    }
-  }
-
-  for (const rawLine of lines) {
-    const line = rawLine.trim();
-    const heading = line.match(/^(?:#{1,3}\s+)?(?:Kapitel|Chapter)\s+(.+)$/i)
-      ?? line.match(/^#{1,2}\s+(.+)$/);
-    if (heading) {
-      flushParagraph();
-      const hasContent = items.some((item) => item.chapterId === chapterId);
-      if (hasContent || chapterIndex > 1) chapterIndex += 1;
-      chapterId = `chapter-${chapterIndex}`;
-      chapterTitle = line.replace(/^#{1,3}\s+/, "");
-      continue;
-    }
-    if (!line) {
-      flushParagraph();
-    } else {
-      paragraphBuffer.push(line);
-    }
-  }
-  flushParagraph();
-
-  if (!items.length && text.trim()) {
-    return [makeItem("chapter-1-1", "chapter-1", "Kapitel 1", text.trim())];
-  }
-  return items.slice(0, 500);
+  return { items: translated, info };
 }
 
 export default function Home() {
@@ -239,6 +223,11 @@ export default function Home() {
   const [isTestingKey, setIsTestingKey] = useState(false);
   const [settingsMessage, setSettingsMessage] = useState("");
   const [importTitle, setImportTitle] = useState("Mein Buch");
+  const [importPreview, setImportPreview] = useState<BookImportResult | null>(null);
+  const [importError, setImportError] = useState("");
+  const [isReadingImport, setIsReadingImport] = useState(false);
+  const [sourceFormat, setSourceFormat] = useState("Beispieldaten");
+  const [translationEngine, setTranslationEngine] = useState("Beispieldaten");
   const [importText, setImportText] = useState(
     "Kapitel 1 Einführung\n\nAb dem 1. Januar gelten neue Regeln. Dr. Weber stellt das KI-System vor.\n\nWeitere Hinweise stehen unter www.beispiel.de.\n\nKapitel 2 Ausblick\n\nDie nächste Ausgabe erscheint am Freitag.",
   );
@@ -284,6 +273,8 @@ export default function Home() {
         bookTitle: string;
         analysisMode: AnalysisMode;
         analysisNotice: string;
+        sourceFormat?: string;
+        translationEngine?: string;
       };
       if (parsed.items?.length) {
         const frame = window.requestAnimationFrame(() => {
@@ -291,6 +282,8 @@ export default function Home() {
           setBookTitle(parsed.bookTitle);
           setAnalysisMode(parsed.analysisMode);
           setAnalysisNotice(parsed.analysisNotice);
+          setSourceFormat(parsed.sourceFormat ?? "Vorherige Sitzung");
+          setTranslationEngine(parsed.translationEngine ?? "Vorherige Übersetzung");
           setSelectedId(parsed.items.find((item) => item.state === "open")?.id ?? parsed.items[0].id);
         });
         return () => window.cancelAnimationFrame(frame);
@@ -307,8 +300,10 @@ export default function Home() {
       bookTitle,
       analysisMode,
       analysisNotice,
+      sourceFormat,
+      translationEngine,
     }));
-  }, [items, bookTitle, analysisMode, analysisNotice]);
+  }, [items, bookTitle, analysisMode, analysisNotice, sourceFormat, translationEngine]);
 
   useEffect(() => {
     if (!showImport) return;
@@ -384,8 +379,8 @@ export default function Home() {
     setShowAll(false);
     setIsReleased(false);
     setIsAnalyzing(true);
-    setAnalysisProgress(5);
-    setAnalysisNotice("Das Buch wird kapitelweise geprüft.");
+    setAnalysisProgress(35);
+    setAnalysisNotice("Liblouis-Übersetzung abgeschlossen. Die Risikoprüfung läuft.");
 
     const results = new Map<string, ApiFinding>();
     let mode: AnalysisMode = "local";
@@ -424,7 +419,7 @@ export default function Home() {
           ? `Semantische OpenAI-Prüfung mit ${data.model ?? "dem Analysemodell"} abgeschlossen.`
           : data.notice ?? "Lokale Regelprüfung abgeschlossen.";
         for (const finding of data.findings) results.set(finding.id, finding);
-        setAnalysisProgress(Math.round(((start + batch.length) / parsedItems.length) * 90) + 5);
+        setAnalysisProgress(35 + Math.round(((start + batch.length) / parsedItems.length) * 60));
       }
 
       const analyzed = parsedItems.map((item) => {
@@ -514,35 +509,85 @@ export default function Home() {
     setAnnouncement("OpenAI-Sitzungsschlüssel wurde entfernt.");
   }
 
-  function startImport() {
-    const parsed = parseBook(importText);
-    if (!parsed.length) {
-      setAnnouncement("Bitte zuerst einen Buchtext eingeben.");
+  function previewPastedText() {
+    if (!importText.trim()) {
+      setImportError("Bitte zuerst einen Buchtext eingeben.");
       return;
     }
-    void analyzeBook(parsed, importTitle);
+    const preview = parseTextBook(importText, importTitle, "text");
+    setImportPreview(preview);
+    setImportError("");
+    setAnnouncement(`${preview.chapters.length} Kapitel mit ${preview.blocks.length} Abschnitten erkannt.`);
   }
 
-  function readTextFile(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    if (file.size > 5_000_000) {
-      setAnnouncement("Die Datei ist größer als 5 MB. Bitte eine kleinere Textfassung verwenden.");
+  async function startImport() {
+    if (!importPreview?.blocks.length) {
+      previewPastedText();
       return;
     }
-    const reader = new FileReader();
-    reader.onload = () => {
-      setImportText(String(reader.result ?? ""));
-      setImportTitle(file.name.replace(/\.(txt|md)$/i, ""));
-      setAnnouncement(`Datei „${file.name}“ wurde geladen.`);
-    };
-    reader.readAsText(file);
+    setShowImport(false);
+    setBookTitle(importPreview.title);
+    setIsAnalyzing(true);
+    setAnalysisProgress(3);
+    setAnalysisNotice("Liblouis übersetzt das Buch mit der deutschen Regeltabelle.");
+    try {
+      const translated = await createLiblouisItems(importPreview.blocks, setAnalysisProgress);
+      setTranslationEngine(translated.info.label);
+      setSourceFormat(importFormatLabel[importPreview.format]);
+      await analyzeBook(translated.items, importPreview.title);
+      setImportPreview(null);
+      setImportError("");
+    } catch (error) {
+      setIsAnalyzing(false);
+      setShowImport(true);
+      setImportError(
+        error instanceof Error
+          ? error.message
+          : "Die Braille-Übersetzung konnte nicht gestartet werden.",
+      );
+    }
+  }
+
+  async function readImportFile(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const isEpub = /\.epub$/i.test(file.name);
+    if (!isEpub && file.size > 5_000_000) {
+      setImportError("TXT- und Markdown-Dateien dürfen höchstens 5 MB groß sein.");
+      return;
+    }
+    setIsReadingImport(true);
+    setImportError("");
+    setImportPreview(null);
+    try {
+      let preview: BookImportResult;
+      if (isEpub) {
+        preview = await parseEpub(file);
+      } else {
+        const source = await file.text();
+        const fileTitle = file.name.replace(/\.(txt|md|markdown)$/i, "");
+        const format = /\.md|\.markdown$/i.test(file.name) ? "markdown" : "text";
+        setImportText(source);
+        preview = parseTextBook(source, fileTitle, format);
+        preview.fileName = file.name;
+      }
+      setImportTitle(preview.title);
+      setImportPreview(preview);
+      setAnnouncement(`„${file.name}“ wurde gelesen: ${preview.chapters.length} Kapitel erkannt.`);
+    } catch (error) {
+      setImportError(error instanceof Error ? error.message : "Die Datei konnte nicht gelesen werden.");
+    } finally {
+      setIsReadingImport(false);
+      event.target.value = "";
+    }
   }
 
   function downloadReport() {
     const report = {
       book: bookTitle,
       generatedAt: new Date().toISOString(),
+      sourceFormat,
+      translationEngine,
       analysis: modeLabel[analysisMode],
       summary: {
         segments: items.length,
@@ -581,6 +626,12 @@ export default function Home() {
     setAnnouncement("Das Buch wurde für die nächste Produktionsstufe freigegeben.");
   }
 
+  function openImport() {
+    setImportPreview(null);
+    setImportError("");
+    setShowImport(true);
+  }
+
   if (!selected) return null;
 
   return (
@@ -608,7 +659,7 @@ export default function Home() {
               </small>
             </span>
           </button>
-          <button className="button button-secondary" type="button" onClick={() => setShowImport(true)}>
+          <button className="button button-secondary" type="button" onClick={openImport}>
             Buch wechseln
           </button>
         </div>
@@ -618,7 +669,7 @@ export default function Home() {
         <div>
           <p className="eyebrow">Aktuelles Buch</p>
           <h2 id="document-title">{bookTitle}</h2>
-          <p className="document-subtitle">{chapters.length} Kapitel · {items.length} prüfbare Abschnitte · Sitzung wird lokal gespeichert</p>
+          <p className="document-subtitle">{chapters.length} Kapitel · {items.length} prüfbare Abschnitte · {sourceFormat} · {translationEngine}</p>
         </div>
         <div className={`engine-status engine-${analysisMode}`}>
           <span className="engine-dot" aria-hidden="true" />
@@ -700,7 +751,7 @@ export default function Home() {
 
           <div className="comparison-grid">
             <section className="text-panel"><div className="text-panel-label"><span>01</span><h3>Schwarzschrift-Original</h3></div><p>{selected.original}</p></section>
-            <section className="text-panel braille-panel" lang="de-Brai"><div className="text-panel-label"><span>02</span><h3>Braille-Ausgabe</h3></div><p className="braille-text">{selected.braille}</p><small>Demonstrator-Vollschrift · produktiv durch aktuelle dzb-Liblouis-Tabelle ersetzen</small></section>
+            <section className="text-panel braille-panel" lang="de-Brai"><div className="text-panel-label"><span>02</span><h3>Braille-Ausgabe</h3></div><p className="braille-text">{selected.braille}</p><small>{translationEngine}</small></section>
             <section className="text-panel back-panel"><div className="text-panel-label"><span>03</span><h3>Rückübersetzung</h3></div><p>{selected.backTranslation}</p></section>
           </div>
 
@@ -724,7 +775,7 @@ export default function Home() {
         </article>
       </section>
 
-      <footer className="app-footer"><span>Barrierefreier Demonstrator · Tastatur- und Screenreader-bedienbar</span><button type="button" onClick={downloadReport}>Prüfbericht herunterladen</button></footer>
+      <footer className="app-footer"><span>EPUB 3 · Liblouis 3.38.0 · Tastatur- und Screenreader-bedienbar</span><button type="button" onClick={downloadReport}>Prüfbericht herunterladen</button></footer>
       <p className="sr-only" aria-live="polite">{announcement}</p>
 
       {isReleased && (
@@ -737,7 +788,7 @@ export default function Home() {
             <div className="release-summary"><span><strong>{items.length}</strong> Abschnitte</span><span><strong>{autoCount}</strong> automatisch geprüft</span><span><strong>{reviewedCount}</strong> menschlich geprüft</span></div>
             <div className="modal-actions">
               <button className="button button-secondary" type="button" onClick={downloadReport}>Prüfbericht laden</button>
-              <button className="button button-primary" type="button" onClick={() => { setIsReleased(false); setShowImport(true); }}>Neues Buch</button>
+              <button className="button button-primary" type="button" onClick={() => { setIsReleased(false); openImport(); }}>Neues Buch</button>
             </div>
           </section>
         </div>
@@ -812,22 +863,86 @@ export default function Home() {
         <div className="modal-backdrop" role="presentation">
           <section className="modal import-modal" role="dialog" aria-modal="true" aria-labelledby="import-title">
             <div className="modal-heading">
-              <div><p className="eyebrow">Schritt 1 von 3</p><h2 id="import-title">Buch oder Kapitel importieren</h2></div>
+              <div>
+                <p className="eyebrow">{importPreview ? "Strukturvorschau" : "Buchimport"}</p>
+                <h2 id="import-title">{importPreview ? "Ist die Buchstruktur korrekt?" : "Buch oder Kapitel importieren"}</h2>
+              </div>
               <button className="icon-button" ref={closeButtonRef} type="button" aria-label="Import schließen" onClick={() => setShowImport(false)}>×</button>
             </div>
-            <p className="modal-intro">TXT- oder Markdown-Datei auswählen. Kapitelüberschriften wie „Kapitel 1 …“ werden automatisch erkannt.</p>
-            <label className="field-label" htmlFor="book-title">Titel</label>
-            <input className="text-input" id="book-title" value={importTitle} onChange={(event) => setImportTitle(event.target.value)} />
-            <label className="file-drop">
-              <span className="file-drop-icon" aria-hidden="true">↑</span>
-              <span><strong>TXT- oder Markdown-Datei auswählen</strong><small>bis 5 MB · der Text wird kapitelweise verarbeitet</small></span>
-              <input type="file" accept=".txt,.md,text/plain,text/markdown" onChange={readTextFile} />
-            </label>
-            <div className="or-divider"><span>oder Text einfügen</span></div>
-            <label className="field-label" htmlFor="book-text">Buchtext</label>
-            <textarea id="book-text" rows={9} value={importText} onChange={(event) => setImportText(event.target.value)} />
-            <div className="import-assurance"><span aria-hidden="true">✓</span><p><strong>Sicherer Ablauf</strong>Unauffällige Abschnitte werden automatisch freigegeben. Unsichere Fälle bleiben immer in Ihrer Arbeitsliste.</p></div>
-            <div className="modal-actions"><button className="button button-ghost" type="button" onClick={() => setShowImport(false)}>Abbrechen</button><button className="button button-primary" type="button" onClick={startImport}>Buch analysieren</button></div>
+
+            {!importPreview ? (
+              <>
+                <p className="modal-intro">EPUB 3 wird mit Lesereihenfolge und Kapitelstruktur übernommen. TXT und Markdown bleiben als einfacher Fallback verfügbar.</p>
+                <label className="file-drop file-drop-primary">
+                  <span className="file-drop-icon" aria-hidden="true">{isReadingImport ? "…" : "↑"}</span>
+                  <span>
+                    <strong>{isReadingImport ? "Datei wird strukturiert …" : "EPUB, TXT oder Markdown auswählen"}</strong>
+                    <small>EPUB bis 50 MB · TXT/Markdown bis 5 MB</small>
+                  </span>
+                  <input type="file" disabled={isReadingImport} accept=".epub,.txt,.md,.markdown,application/epub+zip,text/plain,text/markdown" onChange={(event) => void readImportFile(event)} />
+                </label>
+                <div className="format-row" aria-label="Unterstützte Formate">
+                  <span className="format-pill preferred">EPUB 3 · empfohlen</span>
+                  <span className="format-pill">Markdown</span>
+                  <span className="format-pill">TXT</span>
+                </div>
+                <div className="or-divider"><span>oder Text einfügen</span></div>
+                <label className="field-label" htmlFor="book-title">Titel</label>
+                <input className="text-input" id="book-title" value={importTitle} onChange={(event) => { setImportTitle(event.target.value); setImportPreview(null); }} />
+                <label className="field-label" htmlFor="book-text">Buchtext</label>
+                <textarea id="book-text" rows={7} value={importText} onChange={(event) => { setImportText(event.target.value); setImportPreview(null); }} />
+                <div className="import-assurance"><span aria-hidden="true">✓</span><p><strong>Struktur zuerst prüfen</strong>Vor der Analyse sehen Sie erkannte Kapitel und Abschnittszahlen. Noch wird nichts an OpenAI gesendet.</p></div>
+              </>
+            ) : (
+              <div className="structure-preview">
+                <div className="preview-summary">
+                  <div>
+                    <span className={`format-badge format-${importPreview.format}`}>{importFormatLabel[importPreview.format]}</span>
+                    <h3>{importPreview.title}</h3>
+                    <p>
+                      {[importPreview.author, importPreview.language].filter(Boolean).join(" · ")
+                        || importPreview.fileName
+                        || "Eingefügter Text"}
+                    </p>
+                  </div>
+                  <div className="preview-numbers">
+                    <span><strong>{importPreview.chapters.length}</strong> Kapitel</span>
+                    <span><strong>{importPreview.blocks.length}</strong> Abschnitte</span>
+                  </div>
+                </div>
+                {importPreview.truncated && (
+                  <p className="preview-warning">Für diesen Prototyp werden die ersten 500 Abschnitte verarbeitet.</p>
+                )}
+                <ol className="chapter-preview-list">
+                  {importPreview.chapters.map((chapter, index) => (
+                    <li key={chapter.id}>
+                      <span>{String(index + 1).padStart(2, "0")}</span>
+                      <strong>{chapter.title}</strong>
+                      <small>{chapter.blockCount} Abschnitte</small>
+                    </li>
+                  ))}
+                </ol>
+                <div className="liblouis-assurance">
+                  <span aria-hidden="true">⠿</span>
+                  <p><strong>Nächster Schritt: echte Braille-Übersetzung</strong>Liblouis 3.38.0 verarbeitet jeden Abschnitt mit „de-g0-detailed.utb“. Danach startet die Regel- und optional die OpenAI-Prüfung.</p>
+                </div>
+              </div>
+            )}
+
+            {importError && <p className="import-error" role="alert">{importError}</p>}
+            <div className="modal-actions">
+              {importPreview ? (
+                <>
+                  <button className="button button-ghost" type="button" onClick={() => { setImportPreview(null); setImportError(""); }}>Andere Datei</button>
+                  <button className="button button-primary" type="button" onClick={() => void startImport()}>Buch analysieren</button>
+                </>
+              ) : (
+                <>
+                  <button className="button button-ghost" type="button" onClick={() => setShowImport(false)}>Abbrechen</button>
+                  <button className="button button-primary" type="button" disabled={isReadingImport} onClick={previewPastedText}>Struktur erkennen</button>
+                </>
+              )}
+            </div>
           </section>
         </div>
       )}
@@ -838,7 +953,7 @@ export default function Home() {
             <div className="analysis-mark" aria-hidden="true">⠿</div>
             <p className="eyebrow">Automatische Vorprüfung</p>
             <h2>{bookTitle} wird analysiert</h2>
-            <p>Kapitel werden strukturiert, Braille wird erzeugt und Risikostellen werden priorisiert.</p>
+            <p>Kapitel werden strukturiert, mit Liblouis übersetzt und anschließend auf Risikostellen geprüft.</p>
             <div className="analysis-progress"><span style={{ width: `${analysisProgress}%` }} /></div>
             <strong>{analysisProgress}%</strong>
             <small>Sie können danach direkt mit den wichtigsten Stellen beginnen.</small>
