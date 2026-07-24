@@ -13,9 +13,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Braille QA Copilot · Buchprüfung",
+  title: "Lesewege · Barrierefreie Medienproduktion",
   description:
-    "Einfacher, barrierefreier Arbeitsablauf für die automatische Vorprüfung ganzer Braille-Bücher und Kapitel.",
+    "KI-gestützte Produktionsplattform für qualitätsgesichertes Braille und künftig navigierbare Hörmedien.",
 };
 
 export default function RootLayout({

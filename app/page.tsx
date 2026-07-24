@@ -67,8 +67,8 @@ const riskLabel: Record<Risk, string> = {
 };
 
 const modeLabel: Record<AnalysisMode, string> = {
-  local: "Lokale Regelprüfung",
-  openai: "OpenAI + Regelprüfung",
+  local: "Regelbasierte Prüfung",
+  openai: "Regeln + inhaltliche KI-Prüfung",
 };
 
 const importFormatLabel: Record<BookImportResult["format"], string> = {
@@ -510,7 +510,7 @@ export default function Home() {
         setApiStatus("session");
       }
       setDraftApiKey("");
-      setSettingsMessage("OpenAI ist verbunden. Neue Analysen laufen jetzt im echten Modus.");
+      setSettingsMessage("OpenAI ist verbunden. Neue Prüfungen erhalten jetzt eine zusätzliche inhaltliche Einschätzung.");
       setAnnouncement("OpenAI-Verbindung wurde erfolgreich eingerichtet.");
     } catch {
       setSettingsMessage("Die Verbindung konnte gerade nicht geprüft werden.");
@@ -710,8 +710,9 @@ export default function Home() {
         <div className="brand-lockup">
           <div className="brand-mark" aria-hidden="true">⠿</div>
           <div>
-            <p className="eyebrow">dzb lesen · Produktionsassistent</p>
-            <h1>Braille QA Copilot</h1>
+            <p className="eyebrow">dzb lesen · Barrierefreie Medienproduktion</p>
+            <h1>Lesewege</h1>
+            <small className="brand-claim">Ein Inhalt. Mehr Zugänge.</small>
           </div>
         </div>
         <div className="topbar-actions">
@@ -722,7 +723,7 @@ export default function Home() {
               <small>
                 {apiStatus === "server" && "OpenAI serverseitig verbunden"}
                 {apiStatus === "session" && "OpenAI für diese Sitzung verbunden"}
-                {apiStatus === "missing" && "OpenAI-Schlüssel fehlt"}
+                {apiStatus === "missing" && "Zusätzliche KI-Prüfung optional"}
                 {apiStatus === "checking" && "Verbindung wird geprüft"}
               </small>
             </span>
@@ -862,17 +863,18 @@ export default function Home() {
         </article>
       </section>
 
-      <footer className="app-footer"><span>Schwarzschrift & Braille · EPUB 3, PEF, BRF · Liblouis 3.38.0 · Screenreader-bedienbar</span><button type="button" onClick={downloadReport}>Prüfbericht herunterladen</button></footer>
+      <footer className="app-footer"><span>Lesewege · Braille-Modul · Mit Tastatur, Screenreader und Braillezeile bedienbar</span><button type="button" onClick={downloadReport}>Prüfbericht herunterladen</button></footer>
         </>
       ) : (
         <section className="onboarding" aria-labelledby="onboarding-title">
           <div className="onboarding-hero">
             <div className="onboarding-copy">
-              <p className="onboarding-kicker"><span aria-hidden="true">✓</span> Startklar ohne Einrichtung</p>
-              <h2 id="onboarding-title">Vom Dokument zu den Stellen, die wirklich geprüft werden müssen.</h2>
+              <p className="onboarding-kicker"><span aria-hidden="true">⠿</span> Braille-Modul · erster Leseweg</p>
+              <h2 id="onboarding-title">Ein Inhalt. Mehr Zugänge.</h2>
               <p className="onboarding-lead">
-                Importieren Sie Schwarzschrift oder eine vorhandene Braille-Ausgabe. Der Copilot übernimmt Struktur,
-                Übersetzung und Vorprüfung – Sie entscheiden nur noch bei auffälligen Stellen.
+                Lesewege ist als gemeinsame Produktionsplattform für Braille und Hörmedien gedacht. Dieses erste
+                Modul erzeugt oder prüft Braille, markiert auffällige Stellen und lässt die letzte Entscheidung
+                bewusst bei den Fachkräften.
               </p>
               <div className="onboarding-actions">
                 <button className="button button-primary onboarding-primary" type="button" onClick={() => startOnboarding("print")}>
@@ -886,8 +888,8 @@ export default function Home() {
               </div>
               <p className="onboarding-support">Auch ganze Bücher werden vollständig verarbeitet. Vor dem Start sehen Sie immer die erkannte Struktur.</p>
             </div>
-            <div className="onboarding-summary" aria-label="Das übernimmt der Copilot">
-              <p className="eyebrow">Das übernimmt der Copilot</p>
+            <div className="onboarding-summary" aria-label="Das übernimmt das Braille-Modul">
+              <p className="eyebrow">Das übernimmt das Braille-Modul</p>
               <ul>
                 <li><span aria-hidden="true">01</span><div><strong>Kapitel erkennen</strong><small>Lesereihenfolge und Abschnitte kontrollieren</small></div></li>
                 <li><span aria-hidden="true">02</span><div><strong>Mit Liblouis verarbeiten</strong><small>Übersetzen oder vorhandenes Braille rückübersetzen</small></div></li>
@@ -916,13 +918,13 @@ export default function Home() {
             <div>
               <strong>
                 {apiStatus === "server" || apiStatus === "session"
-                  ? "Semantische OpenAI-Prüfung ist aktiv"
-                  : "OpenAI ist optional"}
+                  ? "Zusätzliche inhaltliche Prüfung ist aktiv"
+                  : "Zusätzliche Inhaltsprüfung ist optional"}
               </strong>
               <p>
                 {apiStatus === "server" || apiStatus === "session"
-                  ? "Neue Prüfläufe kombinieren Liblouis und die semantische Analyse."
-                  : "Ohne API-Schlüssel arbeitet der Copilot mit Liblouis und lokalen Regeln. Für eine zusätzliche semantische Prüfung können Sie OpenAI in den Einstellungen verbinden."}
+                  ? "Neue Prüfläufe kombinieren die Braille-Regeln mit einer zusätzlichen inhaltlichen Einschätzung."
+                  : "Ohne API-Schlüssel arbeitet Lesewege mit Liblouis und lokalen Regeln. Für eine zusätzliche inhaltliche Prüfung können Sie OpenAI in den Einstellungen verbinden."}
               </p>
             </div>
             {apiStatus !== "server" && apiStatus !== "session" && (
@@ -1062,7 +1064,7 @@ export default function Home() {
                 {apiStatus === "session" && (
                   <div className="connection-card connection-card-success compact">
                     <span aria-hidden="true">✓</span>
-                    <div><strong>OpenAI ist verbunden</strong><p>Neue Buchanalysen nutzen den echten Modus.</p></div>
+                    <div><strong>OpenAI ist verbunden</strong><p>Neue Buchprüfungen erhalten eine zusätzliche inhaltliche Einschätzung.</p></div>
                   </div>
                 )}
               </>
@@ -1122,7 +1124,7 @@ export default function Home() {
                   >
                     <span aria-hidden="true">⠿</span>
                     <strong>Vorhandenes Braille prüfen</strong>
-                    <small>PEF, BRF oder Unicode-Braille rückübersetzen und gezielt reviewen.</small>
+                    <small>PEF, BRF oder Unicode-Braille rückübersetzen und gezielt prüfen.</small>
                   </button>
                 </div>
                 <p className="modal-intro">
@@ -1281,7 +1283,7 @@ export default function Home() {
                 <div className="liblouis-assurance">
                   <span aria-hidden="true">⠿</span>
                   <p>
-                    <strong>{importPreview.mode === "print" ? "Nächster Schritt: echte Braille-Übersetzung" : "Nächster Schritt: Braille-Rückübersetzung und Review"}</strong>
+                    <strong>{importPreview.mode === "print" ? "Nächster Schritt: regelbasierte Braille-Übersetzung" : "Nächster Schritt: Braille-Rückübersetzung und Prüfung"}</strong>
                     {importPreview.mode === "print"
                       ? `Liblouis 3.38.0 übersetzt alle ${importPreview.result.blocks.length} Abschnitte. Danach startet die abschnittsweise Regel- und optional die OpenAI-Prüfung.`
                       : importPreview.result.referenceCount === importPreview.result.segments.length

@@ -135,7 +135,7 @@ export async function POST(request: Request) {
       return NextResponse.json({
         mode: "local",
         findings: fallback,
-        notice: "Lokale Regelprüfung aktiv. Für die semantische Prüfung ist noch kein API-Schlüssel hinterlegt.",
+        notice: "Regelbasierte Prüfung aktiv. Für eine zusätzliche inhaltliche Prüfung ist noch kein API-Schlüssel hinterlegt.",
       });
     }
 

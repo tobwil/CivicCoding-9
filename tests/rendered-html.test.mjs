@@ -26,16 +26,17 @@ async function render() {
   );
 }
 
-test("renders an empty Braille QA onboarding without example data", async () => {
+test("renders an empty Lesewege onboarding without example data", async () => {
   const response = await render();
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 
   const html = await response.text();
   assert.match(html, /<html lang="de"/i);
-  assert.match(html, /<title>Braille QA Copilot · Buchprüfung<\/title>/i);
-  assert.match(html, /Braille QA Copilot/);
-  assert.match(html, /Vom Dokument zu den Stellen, die wirklich geprüft werden müssen/);
+  assert.match(html, /<title>Lesewege · Barrierefreie Medienproduktion<\/title>/i);
+  assert.match(html, /Lesewege/);
+  assert.match(html, /Ein Inhalt\. Mehr Zugänge\./);
+  assert.match(html, /Braille-Modul · erster Leseweg/);
   assert.match(html, /Schwarzschrift übertragen/);
   assert.match(html, /Vorhandenes Braille prüfen/);
   assert.match(html, /Dokument wählen/);
