@@ -13,6 +13,7 @@ deutscher Braille-Publikationen.
 - TXT- und Markdown-Import als Fallback
 - echte Übersetzung und Rückübersetzung mit Liblouis 3.38.0
 - zweiter Workflow für vorhandenes Braille aus PEF, BRF oder Unicode-TXT
+- automatische BRF-Erkennung mit auswählbaren deutschen, UEB-, britischen und US-Grade-2-Tabellen
 - optionale Schwarzschrift-Referenz für den direkten Braille-Vergleich
 - sichere Braille-Prüfung ohne Referenz: keine automatische Inhaltsfreigabe
 - deutsche Tabelle `de-g0-detailed.utb`

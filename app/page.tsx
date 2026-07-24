@@ -9,6 +9,7 @@ import {
 } from "@/lib/book-import";
 import {
   BrailleImportResult,
+  BrailleProfileChoice,
   brfToUnicode,
   parseBrailleFile,
   parseUnicodeBraille,
@@ -39,6 +40,7 @@ type ReviewItem = {
   state: ReviewState;
   hasReference: boolean;
   sourceMode: "generated" | "imported_braille";
+  brailleProfile: "de-g0" | "en-ueb-g2" | "en-gb-g2" | "en-us-g2";
 };
 
 type ApiFinding = {
@@ -113,6 +115,7 @@ function makeItem(
     state: "auto_approved",
     hasReference: true,
     sourceMode: "generated",
+    brailleProfile: "de-g0",
   };
 }
 
@@ -189,6 +192,13 @@ const brailleFormatLabel: Record<BrailleImportResult["format"], string> = {
   unicode: "Unicode-Braille",
 };
 
+const brailleProfileLabel = {
+  "de-g0": "Deutsch · Basisschrift",
+  "en-ueb-g2": "Englisch · UEB Grade 2",
+  "en-gb-g2": "Englisch · British Grade 2",
+  "en-us-g2": "Englisch · US Grade 2",
+} as const;
+
 async function createLiblouisItems(
   blocks: ImportedBlock[],
   onProgress: (value: number) => void,
@@ -218,6 +228,7 @@ async function createLiblouisItems(
       state: "auto_approved",
       hasReference: true,
       sourceMode: "generated",
+      brailleProfile: "de-g0",
     });
     if (index % 10 === 0 || index === blocks.length - 1) {
       onProgress(5 + Math.round(((index + 1) / blocks.length) * 28));
@@ -250,7 +261,7 @@ async function createBrailleReviewItems(
       original: segment.reference ?? "",
       braille: isBrf ? brfToUnicode(segment.braille) : segment.braille,
       backTranslation: isBrf
-        ? backTranslateFromBrf(segment.braille)
+        ? backTranslateFromBrf(segment.braille, segment.profile)
         : backTranslateFromBraille(segment.braille),
       risk: "medium",
       category: "structure",
@@ -259,6 +270,7 @@ async function createBrailleReviewItems(
       state: "open",
       hasReference: Boolean(segment.reference),
       sourceMode: "imported_braille",
+      brailleProfile: segment.profile,
     });
     if (index % 10 === 0 || index === result.segments.length - 1) {
       onProgress(5 + Math.round(((index + 1) / result.segments.length) * 28));
@@ -266,7 +278,19 @@ async function createBrailleReviewItems(
     }
   }
 
-  return { items: translated, info };
+  return {
+    items: translated,
+    info: {
+      ...info,
+      label: result.profile === "en-ueb-g2"
+        ? `Liblouis ${info.version} · Englisch UEB Grade 2`
+        : result.profile === "en-gb-g2"
+          ? `Liblouis ${info.version} · Englisch British Grade 2`
+          : result.profile === "en-us-g2"
+            ? `Liblouis ${info.version} · Englisch US Grade 2`
+            : info.label,
+    },
+  };
 }
 
 export default function Home() {
@@ -303,6 +327,7 @@ export default function Home() {
   );
   const [brailleText, setBrailleText] = useState("⠠⠙⠁⠎ ⠊⠎⠞ ⠑⠊⠝ ⠠⠞⠑⠎⠞⠲");
   const [brailleReferenceText, setBrailleReferenceText] = useState("");
+  const [brailleProfileChoice, setBrailleProfileChoice] = useState<BrailleProfileChoice>("auto");
   const [announcement, setAnnouncement] = useState("");
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const settingsCloseButtonRef = useRef<HTMLButtonElement>(null);
@@ -355,6 +380,7 @@ export default function Home() {
           ...item,
           hasReference: item.hasReference ?? true,
           sourceMode: item.sourceMode ?? "generated" as const,
+          brailleProfile: item.brailleProfile ?? "de-g0" as const,
         }));
         const frame = window.requestAnimationFrame(() => {
           setItems(restoredItems);
@@ -506,6 +532,7 @@ export default function Home() {
               backTranslation: item.backTranslation,
               hasReference: item.hasReference,
               sourceMode: item.sourceMode,
+              brailleProfile: item.brailleProfile,
             })),
           }),
         });
@@ -693,7 +720,7 @@ export default function Home() {
     setShowImportDocument(false);
     try {
       if (importMode === "braille") {
-        const preview = await parseBrailleFile(file, brailleReferenceText);
+        const preview = await parseBrailleFile(file, brailleReferenceText, brailleProfileChoice);
         setImportTitle(preview.title);
         setImportPreview({ mode: "braille", result: preview });
         setAnnouncement(`„${file.name}“ wurde gelesen: ${preview.segments.length} Braille-Abschnitte erkannt.`);
@@ -750,6 +777,7 @@ export default function Home() {
         hasReference: item.hasReference,
         sourceMode: item.sourceMode,
         braille: item.braille,
+        brailleProfile: item.brailleProfile,
         backTranslation: item.backTranslation,
         risk: item.risk,
         category: item.category,
@@ -1166,6 +1194,26 @@ export default function Home() {
                     </>
                   )}
                 </div>
+                {importMode === "braille" && (
+                  <>
+                    <label className="field-label" htmlFor="braille-profile">BRF-Regelwerk</label>
+                    <select
+                      className="text-input"
+                      id="braille-profile"
+                      value={brailleProfileChoice}
+                      onChange={(event) => {
+                        setBrailleProfileChoice(event.target.value as BrailleProfileChoice);
+                        setImportPreview(null);
+                      }}
+                    >
+                      <option value="auto">Automatisch aus BRF erkennen</option>
+                      <option value="de-g0">Deutsch · Basisschrift</option>
+                      <option value="en-ueb-g2">Englisch · UEB Grade 2</option>
+                      <option value="en-gb-g2">Englisch · British Grade 2</option>
+                      <option value="en-us-g2">Englisch · US Grade 2</option>
+                    </select>
+                  </>
+                )}
                 <div className="or-divider"><span>{importMode === "print" ? "oder Text einfügen" : "oder Unicode-Braille einfügen"}</span></div>
                 <label className="field-label" htmlFor="book-title">Titel</label>
                 <input className="text-input" id="book-title" value={importTitle} onChange={(event) => { setImportTitle(event.target.value); setImportPreview(null); }} />
@@ -1201,7 +1249,7 @@ export default function Home() {
                         ? [importPreview.result.author, importPreview.result.language].filter(Boolean).join(" · ")
                           || importPreview.result.fileName
                           || "Eingefügter Text"
-                        : importPreview.result.fileName || "Eingefügtes Unicode-Braille"}
+                        : `${importPreview.result.fileName || "Eingefügtes Unicode-Braille"} · ${brailleProfileLabel[importPreview.result.profile]}`}
                     </p>
                   </div>
                   <div className="preview-numbers">

@@ -23,9 +23,16 @@ export type LiblouisBuild = {
   stringToUTF32(value: string, pointer: number, maxBytes: number): void;
 };
 
+export type BrailleProfile = "de-g0" | "en-ueb-g2" | "en-gb-g2" | "en-us-g2";
+
 const TABLE_DIRECTORY = "/braille-tables";
 const UNICODE_TABLE_NAME = `${TABLE_DIRECTORY}/unicode.dis,${TABLE_DIRECTORY}/de-g0-detailed.utb`;
-const BRF_TABLE_NAME = `${TABLE_DIRECTORY}/de-eurobrl6.dis,${TABLE_DIRECTORY}/de-g0-detailed.utb`;
+const BRF_TABLE_NAMES: Record<BrailleProfile, string> = {
+  "de-g0": `${TABLE_DIRECTORY}/de-eurobrl6.dis,${TABLE_DIRECTORY}/de-g0-detailed.utb`,
+  "en-ueb-g2": `${TABLE_DIRECTORY}/en-us-brf.dis,${TABLE_DIRECTORY}/en-ueb-g2.ctb`,
+  "en-gb-g2": `${TABLE_DIRECTORY}/en-us-brf.dis,${TABLE_DIRECTORY}/en-GB-g2.ctb`,
+  "en-us-g2": `${TABLE_DIRECTORY}/en-us-brf.dis,${TABLE_DIRECTORY}/en-us-g2.ctb`,
+};
 
 function codePointsToString(codePoints: Uint32Array) {
   let result = "";
@@ -60,12 +67,21 @@ export function createLiblouisTranslator(
   }
 
   const unicodeValid = build.ccall("lou_checkTable", "number", ["string"], [UNICODE_TABLE_NAME]);
-  const brfValid = build.ccall("lou_checkTable", "number", ["string"], [BRF_TABLE_NAME]);
-  if (unicodeValid !== 1 || brfValid !== 1) {
+  const germanBrfValid = build.ccall("lou_checkTable", "number", ["string"], [BRF_TABLE_NAMES["de-g0"]]);
+  const englishBrfValid = (["en-ueb-g2", "en-gb-g2", "en-us-g2"] as const)
+    .every((profile) => (
+      build.ccall("lou_checkTable", "number", ["string"], [BRF_TABLE_NAMES[profile]]) === 1
+    ));
+  if (unicodeValid !== 1 || germanBrfValid !== 1 || !englishBrfValid) {
     throw new Error("Die deutsche Liblouis-Tabelle konnte nicht geladen werden.");
   }
 
-  function translate(text: string, backTranslate: boolean, tableName = UNICODE_TABLE_NAME) {
+  function translate(
+    text: string,
+    backTranslate: boolean,
+    tableName = UNICODE_TABLE_NAME,
+    mode = 0,
+  ) {
     if (!text) return "";
     const inputLength = Array.from(text).length;
     const inputPointer = build._malloc((inputLength + 1) * 4);
@@ -88,7 +104,7 @@ export function createLiblouisTranslator(
           inputLengthPointer,
           outputPointer,
           outputLengthPointer,
-          0,
+          mode,
           0,
           0,
         ],
@@ -111,7 +127,16 @@ export function createLiblouisTranslator(
   return {
     translateToBraille: (text: string) => translate(text, false),
     backTranslateFromBraille: (braille: string) => translate(braille, true),
-    backTranslateFromBrf: (braille: string) => translate(braille, true, BRF_TABLE_NAME),
+    backTranslateFromBrf: (braille: string, profile: BrailleProfile = "de-g0") => {
+      if (profile !== "de-g0") {
+        return braille
+          .replace(/\r/g, "")
+          .split("\n")
+          .map((line) => translate(line, true, BRF_TABLE_NAMES[profile]))
+          .join("\n");
+      }
+      return translate(braille, true, BRF_TABLE_NAMES[profile]);
+    },
     info: {
       version,
       table: "de-g0-detailed.utb",

@@ -89,6 +89,7 @@ test("translates and back-translates German text with Liblouis 3.38", async () =
   );
   const names = [
     "countries.cti",
+    "braille-patterns.cti",
     "de-accents-detailed.cti",
     "de-chardefs6.cti",
     "de-eurobrl6.dis",
@@ -96,9 +97,25 @@ test("translates and back-translates German text with Liblouis 3.38", async () =
     "de-g0-detailed.utb",
     "digits6DotsPlusDot6.uti",
     "latinLetterDef6Dots.uti",
+    "latinUppercaseComp6.uti",
     "litdigits6Dots.uti",
     "spaces.uti",
     "unicode.dis",
+    "text_nabcc.dis",
+    "en-ueb-chardefs.uti",
+    "en-ueb-g1.ctb",
+    "en-ueb-g2.ctb",
+    "en-ueb-math.ctb",
+    "en-GB-g2.ctb",
+    "en-gb-g1.utb",
+    "en-chardefs.cti",
+    "en-us-compbrl.uti",
+    "en-us-emphasis.uti",
+    "en-us-g1.ctb",
+    "en-us-g2.ctb",
+    "en-us-brf.dis",
+    "loweredDigits6Dots.uti",
+    "ukchardefs.cti",
   ];
   const tableFiles = Object.fromEntries(await Promise.all(
     names.map(async (name) => [
@@ -116,6 +133,14 @@ test("translates and back-translates German text with Liblouis 3.38", async () =
   assert.match(braille, /[\u2800-\u28ff]/u);
   assert.equal(translator.backTranslateFromBraille(braille), original);
   assert.equal(translator.backTranslateFromBrf("#aj $ziegen"), "10 Ziegen");
+  assert.equal(
+    translator.backTranslateFromBrf(",WELCOME BACK TO ! ,MA/]CLASS4", "en-ueb-g2"),
+    "Welcome back to the Masterclass.",
+  );
+  assert.equal(
+    translator.backTranslateFromBrf(",WELCOME BACK TO ! ,MA/]CLASS4", "en-us-g2"),
+    "Welcome back to the Masterclass.",
+  );
 });
 
 test("imports Unicode Braille and pairs optional Schwarzschrift references", async () => {
@@ -176,4 +201,21 @@ test("imports PEF pages and BRF Braille ASCII", async () => {
   assert.equal(brfResult.format, "brf");
   assert.equal(brfResult.segments.length, 2);
   assert.match(brfToUnicode(brfResult.segments[0].braille), /[\u2800-\u28ff]/u);
+});
+
+test("auto-detects English contracted BRF", async () => {
+  const { detectBrfProfile, parseBrailleFile } = await import(
+    `../lib/braille-import.ts?ueb=${Date.now()}`
+  );
+  const source = ",WELCOME BACK TO ! ,MA/]CLASS4\n,YR EMBOSS] IS R1DY4";
+  const file = {
+    name: "english.brf",
+    size: source.length,
+    text: async () => source,
+  };
+  const result = await parseBrailleFile(file);
+
+  assert.equal(detectBrfProfile(source), "en-us-g2");
+  assert.equal(result.profile, "en-us-g2");
+  assert.equal(result.segments[0].profile, "en-us-g2");
 });

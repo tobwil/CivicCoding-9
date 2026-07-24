@@ -12,6 +12,7 @@ const InputSchema = z.object({
     backTranslation: z.string().max(2400),
     hasReference: z.boolean().default(true),
     sourceMode: z.enum(["generated", "imported_braille"]).default("generated"),
+    brailleProfile: z.enum(["de-g0", "en-ueb-g2", "en-gb-g2", "en-us-g2"]).default("de-g0"),
   })).min(1).max(24),
 });
 
@@ -152,6 +153,7 @@ export async function POST(request: Request) {
             "sourceMode=generated bedeutet, dass Braille aus dem Original erzeugt wurde; sourceMode=imported_braille " +
             "bedeutet, dass eine vorhandene Braille-Ausgabe geprüft wird. Bei hasReference=false darfst du nur " +
             "Plausibilität und Struktur beurteilen, niemals Vollständigkeit behaupten und autoRelease muss false sein. " +
+            "brailleProfile kennzeichnet deutsche Basisschrift, UEB oder ältere britische beziehungsweise US-Grade-2-Regeln. " +
             "Braille übersetzt du nicht neu. Markiere Bedeutungsverlust, " +
             "Zahlen, Einheiten, Eigennamen, Abkürzungen, Webadressen, Interpunktion und strukturelle Risiken. " +
             "autoRelease darf nur true sein, wenn kein relevantes Risiko erkennbar ist. Gib für jede ID genau " +

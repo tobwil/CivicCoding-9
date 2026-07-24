@@ -9,6 +9,23 @@ import latinTable from "liblouis-build/tables/latinLetterDef6Dots.uti?raw";
 import literalDigitsTable from "liblouis-build/tables/litdigits6Dots.uti?raw";
 import spacesTable from "liblouis-build/tables/spaces.uti?raw";
 import unicodeDisplayTable from "liblouis-build/tables/unicode.dis?raw";
+import braillePatternsTable from "liblouis-build/tables/braille-patterns.cti?raw";
+import englishUebCharsTable from "liblouis-build/tables/en-ueb-chardefs.uti?raw";
+import englishUebGrade1Table from "liblouis-build/tables/en-ueb-g1.ctb?raw";
+import englishUebGrade2Table from "liblouis-build/tables/en-ueb-g2.ctb?raw";
+import englishUebMathTable from "liblouis-build/tables/en-ueb-math.ctb?raw";
+import latinUppercaseTable from "liblouis-build/tables/latinUppercaseComp6.uti?raw";
+import nabccDisplayTable from "liblouis-build/tables/text_nabcc.dis?raw";
+import englishBritishGrade1Table from "liblouis-build/tables/en-gb-g1.utb?raw";
+import englishBritishGrade2Table from "liblouis-build/tables/en-GB-g2.ctb?raw";
+import englishCharsTable from "liblouis-build/tables/en-chardefs.cti?raw";
+import englishUsCompTable from "liblouis-build/tables/en-us-compbrl.uti?raw";
+import englishUsEmphasisTable from "liblouis-build/tables/en-us-emphasis.uti?raw";
+import englishUsGrade1Table from "liblouis-build/tables/en-us-g1.ctb?raw";
+import englishUsGrade2Table from "liblouis-build/tables/en-us-g2.ctb?raw";
+import loweredDigitsTable from "liblouis-build/tables/loweredDigits6Dots.uti?raw";
+import ukCharsTable from "liblouis-build/tables/ukchardefs.cti?raw";
+import brfDisplayTable from "liblouis-build/tables/en-us-brf.dis?raw";
 import {
   createLiblouisTranslator,
   LiblouisBuild,
@@ -25,6 +42,23 @@ const tableFiles: Record<string, string> = {
   "litdigits6Dots.uti": literalDigitsTable,
   "spaces.uti": spacesTable,
   "unicode.dis": unicodeDisplayTable,
+  "braille-patterns.cti": braillePatternsTable,
+  "en-ueb-chardefs.uti": englishUebCharsTable,
+  "en-ueb-g1.ctb": englishUebGrade1Table,
+  "en-ueb-g2.ctb": englishUebGrade2Table,
+  "en-ueb-math.ctb": englishUebMathTable,
+  "latinUppercaseComp6.uti": latinUppercaseTable,
+  "text_nabcc.dis": nabccDisplayTable,
+  "en-gb-g1.utb": englishBritishGrade1Table,
+  "en-GB-g2.ctb": englishBritishGrade2Table,
+  "en-chardefs.cti": englishCharsTable,
+  "en-us-compbrl.uti": englishUsCompTable,
+  "en-us-emphasis.uti": englishUsEmphasisTable,
+  "en-us-g1.ctb": englishUsGrade1Table,
+  "en-us-g2.ctb": englishUsGrade2Table,
+  "loweredDigits6Dots.uti": loweredDigitsTable,
+  "ukchardefs.cti": ukCharsTable,
+  "en-us-brf.dis": brfDisplayTable,
 };
 
 let build: LiblouisBuild | null = null;

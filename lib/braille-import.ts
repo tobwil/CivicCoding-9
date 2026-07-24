@@ -1,5 +1,8 @@
+import type { BrailleProfile } from "@/lib/liblouis-core";
+
 export type BrailleImportFormat = "pef" | "brf" | "unicode";
 export type BrailleSourceEncoding = "unicode" | "brf";
+export type BrailleProfileChoice = BrailleProfile | "auto";
 
 export type ImportedBrailleSegment = {
   id: string;
@@ -7,6 +10,7 @@ export type ImportedBrailleSegment = {
   chapterTitle: string;
   braille: string;
   sourceEncoding: BrailleSourceEncoding;
+  profile: BrailleProfile;
   reference?: string;
 };
 
@@ -23,6 +27,7 @@ export type BrailleImportResult = {
   segments: ImportedBrailleSegment[];
   chapters: ImportedBrailleChapter[];
   referenceCount: number;
+  profile: BrailleProfile;
   truncated: boolean;
 };
 
@@ -71,6 +76,7 @@ function makeResult(
     chapterTitle: string;
     braille: string;
     sourceEncoding: BrailleSourceEncoding;
+    profile: BrailleProfile;
   }>,
   referenceText = "",
   fileName?: string,
@@ -101,6 +107,7 @@ function makeResult(
     segments,
     chapters: Array.from(chapterMap.values()),
     referenceCount: segments.filter((segment) => Boolean(segment.reference)).length,
+    profile: segments[0]?.profile ?? "de-g0",
     truncated: false,
   };
 }
@@ -134,6 +141,7 @@ export function parseUnicodeBraille(
       chapterTitle: "Braille-Dokument",
       braille,
       sourceEncoding: "unicode",
+      profile: "de-g0",
     })),
     referenceText,
   );
@@ -170,6 +178,7 @@ function parsePef(source: string, title: string, referenceText: string, fileName
         chapterTitle: volumes.length > 1 ? `Band ${volumeIndex + 1}` : "Braille-Dokument",
         braille: pageRows.join("\n"),
         sourceEncoding: "unicode",
+        profile: "de-g0",
       });
     });
   });
@@ -180,6 +189,7 @@ function parsePef(source: string, title: string, referenceText: string, fileName
 export async function parseBrailleFile(
   file: File,
   referenceText = "",
+  profileChoice: BrailleProfileChoice = "auto",
 ): Promise<BrailleImportResult> {
   if (file.size > 50_000_000) {
     throw new Error("Die Braille-Datei ist größer als 50 MB.");
@@ -192,6 +202,7 @@ export async function parseBrailleFile(
   if (/\.brf$/i.test(file.name)) {
     const pages = brfPages(source);
     if (!pages.length) throw new Error("Die BRF-Datei enthält keine Braille-Daten.");
+    const profile = profileChoice === "auto" ? detectBrfProfile(source) : profileChoice;
     return makeResult(
       "brf",
       title,
@@ -200,6 +211,7 @@ export async function parseBrailleFile(
         chapterTitle: "Braille-Dokument",
         braille,
         sourceEncoding: "brf",
+        profile,
       })),
       referenceText,
       file.name,
@@ -208,4 +220,13 @@ export async function parseBrailleFile(
   const result = parseUnicodeBraille(source, title, referenceText);
   result.fileName = file.name;
   return result;
+}
+
+export function detectBrfProfile(source: string): BrailleProfile {
+  const englishCapitalIndicators = source.match(/,[A-Z]/g)?.length ?? 0;
+  const germanCapitalIndicators = source.match(/\$[A-Z]/g)?.length ?? 0;
+  const englishContractions = source.match(/(?:^|\s)[!&=)(](?=\s|[.,;?!])/gm)?.length ?? 0;
+  return englishCapitalIndicators + englishContractions > germanCapitalIndicators * 2 + 1
+    ? "en-us-g2"
+    : "de-g0";
 }
