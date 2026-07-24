@@ -37,6 +37,8 @@ test("renders an empty Lesewege onboarding without example data", async () => {
   assert.match(html, /Lesewege/);
   assert.match(html, /Ein Inhalt\. Mehr Zugänge\./);
   assert.match(html, /Braille-Modul · erster Leseweg/);
+  assert.match(html, /Hörmedien/);
+  assert.match(html, /Sprechfassung und Hörprüfung/);
   assert.match(html, /Schwarzschrift übertragen/);
   assert.match(html, /Vorhandenes Braille prüfen/);
   assert.match(html, /Dokument wählen/);
@@ -66,6 +68,7 @@ test("reports whether a server-side OpenAI key is configured", async () => {
   const result = await response.json();
   assert.equal(result.serverKeyConfigured, false);
   assert.equal(typeof result.model, "string");
+  assert.equal(result.speechModel, "tts-1-hd");
 });
 
 test("rejects an empty session API key without contacting OpenAI", async () => {
@@ -134,6 +137,33 @@ test("analyzes book segments safely without an API key", async () => {
   assert.equal(result.findings[0].autoRelease, false);
   assert.equal(result.findings[1].risk, "low");
   assert.equal(result.findings[1].autoRelease, true);
+});
+
+test("does not generate paid audio without an OpenAI connection", async () => {
+  const worker = await createWorker();
+  const response = await worker.fetch(
+    new Request("http://localhost/api/audio", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        text: "Dies ist ein Hörtest.",
+        voice: "nova",
+      }),
+    }),
+    {
+      ASSETS: {
+        fetch: async () => new Response("Not found", { status: 404 }),
+      },
+    },
+    {
+      waitUntil() {},
+      passThroughOnException() {},
+    },
+  );
+
+  assert.equal(response.status, 400);
+  const result = await response.json();
+  assert.match(result.error, /OpenAI/);
 });
 
 test("never auto-releases imported Braille without a Schwarzschrift reference", async () => {

@@ -12,7 +12,9 @@ Die KI ersetzt keine Fachkräfte. Sie automatisiert nachvollziehbare
 Produktionsschritte, markiert Risiken und legt den Korrekturlesenden gezielt die
 Stellen vor, bei denen eine menschliche Entscheidung erforderlich ist.
 
-## Aktueller Demonstrator: Braille-Modul
+## Aktueller Demonstrator
+
+### Braille-Modul
 
 - EPUB-3-Import mit Titel, Autor, Sprache, Kapiteln und Lesereihenfolge
 - vollständige Verarbeitung ganzer Bücher ohne Abschnittsbegrenzung
@@ -26,6 +28,17 @@ Stellen vor, bei denen eine menschliche Entscheidung erforderlich ist.
 - barrierefreie Korrekturansicht für Tastatur, Screenreader und Braillezeile
 - lokaler Sitzungsstand und herunterladbarer Prüfbericht
 
+### Hörmedien-Modul
+
+- eigener, gleichwertiger Produktionsbereich neben Braille
+- EPUB-3-, TXT- und Markdown-Import mit vollständiger Kapitelstruktur
+- automatisch vorbereitete und vor der Ausgabe editierbare Sprechfassung
+- verständliche Auflösung häufiger Abkürzungen, Einheiten und Dezimalzahlen
+- abschnittsweise OpenAI-Sprachausgabe mit auswählbarer Stimme
+- direkter Audioplayer und menschliche Hörfreigabe pro Abschnitt
+- transparente Kennzeichnung der KI-generierten Stimme
+- keine unkontrollierte Stapelerzeugung: Audio entsteht bewusst abschnittsweise
+
 ## Bezug zur Challenge
 
 Der Demonstrator adressiert den ersten Engpass aus Challenge 9: Die
@@ -34,9 +47,10 @@ beschleunigt werden. Lesewege übernimmt dabei Strukturierung, Übersetzung,
 Rückübersetzung und Priorisierung. Korrekturlesende konzentrieren sich auf
 markierte Risikostellen und behalten die Freigabe in der Hand.
 
-Das gemeinsame Inhaltsmodell ist zugleich die Grundlage für das zweite Modul:
-die schnellere Produktion aktueller Zeitschriften als navigierbare
-DAISY-/EPUB-Hörmedien.
+Das gemeinsame Inhaltsmodell trägt nun auch das zweite Modul: Es bereitet
+Schwarzschrift als editierbaren Sprechtext vor, erzeugt abschnittsweise Audio
+und führt Fachkräfte durch die Hörprüfung. Der nächste Ausbauschritt ist der
+Export der freigegebenen Kapitel als navigierbares DAISY-/EPUB-Hörmedium.
 
 ## Lokale Entwicklung
 
@@ -58,14 +72,16 @@ npm test
 ```
 
 Die Tests decken EPUB-, PEF-, BRF- und Unicode-Braille-Import,
-TXT-/Markdown-Import, Liblouis-Übersetzung und Rückübersetzung sowie die
-Serverrouten ab.
+TXT-/Markdown-Import, Sprechtextvorbereitung, Liblouis-Übersetzung und
+Rückübersetzung sowie die Serverrouten ab.
 
 ## OpenAI-Verbindung
 
 Produktiv kann `OPENAI_API_KEY` als serverseitiges Secret gesetzt werden.
 Fehlt es, lässt sich im Einstellungsmenü ein Schlüssel ausschließlich für den
 aktuellen Browser-Tab hinterlegen. Ein serverseitiger Schlüssel hat Vorrang.
+Für die Sprachausgabe kann `OPENAI_TTS_MODEL` gesetzt werden; ohne Angabe nutzt
+Lesewege `tts-1-hd`.
 
 ## Fachliche Grenze
 
