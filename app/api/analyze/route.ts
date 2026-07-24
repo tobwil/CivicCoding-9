@@ -7,9 +7,11 @@ const InputSchema = z.object({
   segments: z.array(z.object({
     id: z.string().min(1).max(120),
     chapter: z.string().min(1).max(240),
-    original: z.string().min(1).max(2400),
+    original: z.string().max(2400),
     braille: z.string().max(5000),
     backTranslation: z.string().max(2400),
+    hasReference: z.boolean().default(true),
+    sourceMode: z.enum(["generated", "imported_braille"]).default("generated"),
   })).min(1).max(24),
 });
 
@@ -37,11 +39,13 @@ type Finding = z.infer<typeof FindingSchema>["findings"][number];
 
 function localFinding(segment: Segment): Finding {
   const text = segment.original;
-  const isWeb = /(https?:\/\/|www\.|[\w.-]+@[\w.-]+)/i.test(text);
-  const hasNumber = /\d/.test(text);
+  const observedText = `${segment.original} ${segment.backTranslation}`;
+  const isWeb = /(https?:\/\/|www\.|[\w.-]+@[\w.-]+)/i.test(observedText);
+  const hasNumber = /\d/.test(observedText);
   const hasAbbreviation = /\b(?:Dr|Prof|bzw|z\. ?B|u\. ?a)\./i.test(text);
   const hasHyphen = /[\p{L}]-[\p{L}]/u.test(text);
-  const differs = segment.original.trim() !== segment.backTranslation.trim();
+  const differs = segment.hasReference
+    && segment.original.trim() !== segment.backTranslation.trim();
 
   if (isWeb) {
     return {
@@ -60,6 +64,16 @@ function localFinding(segment: Segment): Finding {
       category: "number_or_unit",
       reason: "Zahl, Datum oder Maßeinheit erkannt.",
       recommendation: "Ziffern, Trennzeichen und Einheit manuell bestätigen.",
+      autoRelease: false,
+    };
+  }
+  if (segment.sourceMode === "imported_braille" && !segment.hasReference) {
+    return {
+      id: segment.id,
+      risk: "medium",
+      category: "structure",
+      reason: "Ohne Schwarzschrift-Referenz kann die inhaltliche Vollständigkeit nicht automatisch bestätigt werden.",
+      recommendation: "Rückübersetzung auf Plausibilität prüfen und nach Möglichkeit mit der Originalvorlage vergleichen.",
       autoRelease: false,
     };
   }
@@ -134,8 +148,11 @@ export async function POST(request: Request) {
           role: "system",
           content:
             "Du bist ein konservativer Qualitätssicherungs-Assistent für deutsche Braille-Produktion. " +
-            "Bewerte jeden gelieferten Abschnitt anhand von Original, Braille-Ausgabe und Rückübersetzung. " +
-            "Braille wird deterministisch erzeugt; du übersetzt es nicht neu. Markiere Bedeutungsverlust, " +
+            "Bewerte jeden gelieferten Abschnitt anhand von Schwarzschrift-Referenz, Braille-Ausgabe und Rückübersetzung. " +
+            "sourceMode=generated bedeutet, dass Braille aus dem Original erzeugt wurde; sourceMode=imported_braille " +
+            "bedeutet, dass eine vorhandene Braille-Ausgabe geprüft wird. Bei hasReference=false darfst du nur " +
+            "Plausibilität und Struktur beurteilen, niemals Vollständigkeit behaupten und autoRelease muss false sein. " +
+            "Braille übersetzt du nicht neu. Markiere Bedeutungsverlust, " +
             "Zahlen, Einheiten, Eigennamen, Abkürzungen, Webadressen, Interpunktion und strukturelle Risiken. " +
             "autoRelease darf nur true sein, wenn kein relevantes Risiko erkennbar ist. Gib für jede ID genau " +
             "einen Befund zurück und erfinde keine Textinhalte. Antworte auf Deutsch.",
@@ -152,9 +169,17 @@ export async function POST(request: Request) {
 
     const aiFindings = response.output_parsed?.findings ?? [];
     const byId = new Map(aiFindings.map((finding) => [finding.id, finding]));
-    const complete = parsed.data.segments.map(
-      (segment, index) => byId.get(segment.id) ?? fallback[index],
-    );
+    const complete = parsed.data.segments.map((segment, index) => {
+      const finding = byId.get(segment.id) ?? fallback[index];
+      if (segment.sourceMode === "imported_braille" && !segment.hasReference) {
+        return {
+          ...finding,
+          risk: finding.risk === "low" ? "medium" as const : finding.risk,
+          autoRelease: false,
+        };
+      }
+      return finding;
+    });
 
     return NextResponse.json({
       mode: "openai",

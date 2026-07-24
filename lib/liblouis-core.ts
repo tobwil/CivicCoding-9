@@ -24,7 +24,8 @@ export type LiblouisBuild = {
 };
 
 const TABLE_DIRECTORY = "/braille-tables";
-const TABLE_NAME = `${TABLE_DIRECTORY}/unicode.dis,${TABLE_DIRECTORY}/de-g0-detailed.utb`;
+const UNICODE_TABLE_NAME = `${TABLE_DIRECTORY}/unicode.dis,${TABLE_DIRECTORY}/de-g0-detailed.utb`;
+const BRF_TABLE_NAME = `${TABLE_DIRECTORY}/de-eurobrl6.dis,${TABLE_DIRECTORY}/de-g0-detailed.utb`;
 
 function codePointsToString(codePoints: Uint32Array) {
   let result = "";
@@ -58,12 +59,13 @@ export function createLiblouisTranslator(
     }
   }
 
-  const valid = build.ccall("lou_checkTable", "number", ["string"], [TABLE_NAME]);
-  if (valid !== 1) {
+  const unicodeValid = build.ccall("lou_checkTable", "number", ["string"], [UNICODE_TABLE_NAME]);
+  const brfValid = build.ccall("lou_checkTable", "number", ["string"], [BRF_TABLE_NAME]);
+  if (unicodeValid !== 1 || brfValid !== 1) {
     throw new Error("Die deutsche Liblouis-Tabelle konnte nicht geladen werden.");
   }
 
-  function translate(text: string, backTranslate: boolean) {
+  function translate(text: string, backTranslate: boolean, tableName = UNICODE_TABLE_NAME) {
     if (!text) return "";
     const inputLength = Array.from(text).length;
     const inputPointer = build._malloc((inputLength + 1) * 4);
@@ -81,7 +83,7 @@ export function createLiblouisTranslator(
         "number",
         ["string", "number", "number", "number", "number", "number", "number", "number"],
         [
-          TABLE_NAME,
+          tableName,
           inputPointer,
           inputLengthPointer,
           outputPointer,
@@ -109,6 +111,7 @@ export function createLiblouisTranslator(
   return {
     translateToBraille: (text: string) => translate(text, false),
     backTranslateFromBraille: (braille: string) => translate(braille, true),
+    backTranslateFromBrf: (braille: string) => translate(braille, true, BRF_TABLE_NAME),
     info: {
       version,
       table: "de-g0-detailed.utb",

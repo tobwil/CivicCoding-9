@@ -10,6 +10,9 @@ deutscher Braille-Publikationen.
 - Strukturvorschau vor der Analyse
 - TXT- und Markdown-Import als Fallback
 - echte Übersetzung und Rückübersetzung mit Liblouis 3.38.0
+- zweiter Workflow für vorhandenes Braille aus PEF, BRF oder Unicode-TXT
+- optionale Schwarzschrift-Referenz für den direkten Braille-Vergleich
+- sichere Braille-Prüfung ohne Referenz: keine automatische Inhaltsfreigabe
 - deutsche Tabelle `de-g0-detailed.utb`
 - lokale Risikoregeln und optionale semantische OpenAI-Prüfung
 - tastatur- und screenreader-bedienbare Korrekturansicht
@@ -34,8 +37,9 @@ npm run lint
 npm test
 ```
 
-Die Tests decken EPUB-Struktur und Metadaten, TXT-/Markdown-Fallback,
-Liblouis-Übersetzung und Rückübersetzung sowie die Serverrouten ab.
+Die Tests decken EPUB-, PEF-, BRF- und Unicode-Braille-Import,
+TXT-/Markdown-Fallback, Liblouis-Übersetzung und Rückübersetzung sowie die
+Serverrouten ab.
 
 ## OpenAI-Verbindung
 

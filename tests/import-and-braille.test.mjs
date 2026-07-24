@@ -106,4 +106,54 @@ test("translates and back-translates German text with Liblouis 3.38", async () =
   assert.equal(translator.info.version, "3.38.0");
   assert.match(braille, /[\u2800-\u28ff]/u);
   assert.equal(translator.backTranslateFromBraille(braille), original);
+  assert.equal(translator.backTranslateFromBrf("#aj $ziegen"), "10 Ziegen");
+});
+
+test("imports Unicode Braille and pairs optional Schwarzschrift references", async () => {
+  const { parseUnicodeBraille } = await import(
+    `../lib/braille-import.ts?unicode=${Date.now()}`
+  );
+  const result = parseUnicodeBraille(
+    "⠠⠑⠗⠎⠞⠑⠗ ⠠⠁⠃⠎⠁⠞⠵⠲\n\n⠠⠵⠺⠑⠊⠞⠑⠗ ⠠⠁⠃⠎⠁⠞⠵⠲",
+    "Braille-Test",
+    "Erster Absatz.\n\nZweiter Absatz.",
+  );
+
+  assert.equal(result.format, "unicode");
+  assert.equal(result.segments.length, 2);
+  assert.equal(result.referenceCount, 2);
+  assert.equal(result.segments[1].reference, "Zweiter Absatz.");
+});
+
+test("imports PEF pages and BRF Braille ASCII", async () => {
+  const { brfToUnicode, parseBrailleFile } = await import(
+    `../lib/braille-import.ts?files=${Date.now()}`
+  );
+  const pef = `<?xml version="1.0" encoding="UTF-8"?>
+    <pef xmlns="http://www.daisy.org/ns/2008/pef">
+      <body><volume><section>
+        <page><row>⠠⠎⠑⠊⠞⠑ ⠼⠁</row></page>
+        <page><row>⠠⠎⠑⠊⠞⠑ ⠼⠃</row></page>
+      </section></volume></body>
+    </pef>`;
+  const pefFile = {
+    name: "buch.pef",
+    size: pef.length,
+    text: async () => pef,
+  };
+  const pefResult = await parseBrailleFile(pefFile);
+  assert.equal(pefResult.format, "pef");
+  assert.equal(pefResult.segments.length, 2);
+  assert.match(pefResult.segments[0].braille, /[\u2800-\u28ff]/u);
+
+  const brf = "#aj $ziegen\f$seite b";
+  const brfFile = {
+    name: "buch.brf",
+    size: brf.length,
+    text: async () => brf,
+  };
+  const brfResult = await parseBrailleFile(brfFile);
+  assert.equal(brfResult.format, "brf");
+  assert.equal(brfResult.segments.length, 2);
+  assert.match(brfToUnicode(brfResult.segments[0].braille), /[\u2800-\u28ff]/u);
 });

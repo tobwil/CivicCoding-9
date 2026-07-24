@@ -40,7 +40,7 @@ test("renders the Braille QA workspace", async () => {
   assert.match(html, /Diese Stelle braucht Ihre Entscheidung/);
   assert.match(html, /Einstellungen/);
   assert.match(html, /Buch wechseln/);
-  assert.match(html, /EPUB 3 · Liblouis 3\.38\.0/);
+  assert.match(html, /Schwarzschrift &amp; Braille · EPUB 3, PEF, BRF · Liblouis 3\.38\.0/);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape/);
 });
 
@@ -131,4 +131,40 @@ test("analyzes book segments safely without an API key", async () => {
   assert.equal(result.findings[0].autoRelease, false);
   assert.equal(result.findings[1].risk, "low");
   assert.equal(result.findings[1].autoRelease, true);
+});
+
+test("never auto-releases imported Braille without a Schwarzschrift reference", async () => {
+  const worker = await createWorker();
+  const response = await worker.fetch(
+    new Request("http://localhost/api/analyze", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        segments: [{
+          id: "braille-document-1",
+          chapter: "Braille-Dokument",
+          original: "",
+          braille: "⠠⠙⠁⠎ ⠊⠎⠞ ⠑⠊⠝ ⠠⠞⠑⠎⠞⠲",
+          backTranslation: "Das ist ein Test.",
+          hasReference: false,
+          sourceMode: "imported_braille",
+        }],
+      }),
+    }),
+    {
+      ASSETS: {
+        fetch: async () => new Response("Not found", { status: 404 }),
+      },
+    },
+    {
+      waitUntil() {},
+      passThroughOnException() {},
+    },
+  );
+
+  assert.equal(response.status, 200);
+  const result = await response.json();
+  assert.equal(result.findings[0].risk, "medium");
+  assert.equal(result.findings[0].autoRelease, false);
+  assert.match(result.findings[0].reason, /Ohne Schwarzschrift-Referenz/);
 });
