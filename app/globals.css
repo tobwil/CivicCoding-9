@@ -1163,6 +1163,94 @@ textarea {
   margin: 0;
 }
 
+.focus-progress {
+  display: grid;
+  grid-template-columns: auto minmax(180px, 1fr);
+  align-items: center;
+  gap: 1rem;
+  margin: -0.25rem 0 1rem;
+  padding: 0.8rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: 0.75rem;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.focus-progress-copy {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 220px;
+}
+
+.focus-progress-copy strong {
+  font-size: 0.76rem;
+}
+
+.focus-progress-copy span {
+  color: var(--muted);
+  font-size: 0.66rem;
+}
+
+.focus-progress .progress-track {
+  margin: 0;
+}
+
+.focus-workspace {
+  grid-template-columns: minmax(310px, 0.78fr) minmax(620px, 2.22fr);
+}
+
+.focus-list-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 80px;
+  padding: 1.1rem 1.2rem 0.85rem;
+}
+
+.queue-controls {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.45rem;
+  padding: 0 1rem 0.85rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.queue-controls label {
+  grid-column: 1 / -1;
+  color: var(--muted);
+  font-size: 0.65rem;
+  font-weight: 720;
+}
+
+.queue-controls select,
+.queue-controls button {
+  min-height: 38px;
+  border: 1px solid var(--line-strong);
+  border-radius: 0.5rem;
+  background: white;
+  color: var(--ink);
+  font-size: 0.7rem;
+  font-weight: 680;
+}
+
+.queue-controls select {
+  min-width: 0;
+  padding: 0 0.55rem;
+}
+
+.queue-controls button {
+  padding: 0 0.7rem;
+  color: var(--green);
+  cursor: pointer;
+}
+
+.focus-workspace .queue {
+  max-height: 650px;
+}
+
+.focus-workspace .review-list {
+  border-right: 1px solid var(--line);
+}
+
 .state-auto_approved {
   background: #e1efe6;
   color: var(--green-dark);
@@ -1467,6 +1555,19 @@ textarea {
     grid-column: 1 / -1;
     border-top: 1px solid var(--line);
   }
+
+  .focus-workspace {
+    display: block;
+  }
+
+  .focus-workspace .review-list {
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .focus-workspace .queue {
+    max-height: 360px;
+  }
 }
 
 @media (max-width: 640px) {
@@ -1492,6 +1593,14 @@ textarea {
 
   .book-workspace {
     display: block;
+  }
+
+  .focus-progress {
+    grid-template-columns: 1fr;
+  }
+
+  .focus-progress-copy {
+    min-width: 0;
   }
 
   .release-summary {

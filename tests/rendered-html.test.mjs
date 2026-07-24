@@ -36,9 +36,9 @@ test("renders the Braille QA workspace", async () => {
   assert.match(html, /<title>Braille QA Copilot · Buchprüfung<\/title>/i);
   assert.match(html, /Braille QA Copilot/);
   assert.match(html, /Nur noch .* Stellen brauchen Ihre Entscheidung/);
-  assert.match(html, /Nur offene Stellen/);
+  assert.match(html, /Offene Stellen/);
   assert.match(html, /Diese Stelle braucht Ihre Entscheidung/);
-  assert.match(html, /Neues Buch/);
+  assert.match(html, /Buch wechseln/);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape/);
 });
 

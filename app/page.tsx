@@ -319,6 +319,15 @@ export default function Home() {
     }
   }
 
+  function chooseChapter(chapterId: string) {
+    setSelectedChapter(chapterId);
+    const next = items.find((item) =>
+      (chapterId === "all" || item.chapterId === chapterId)
+      && (showAll || item.state === "open"),
+    );
+    if (next) setSelectedId(next.id);
+  }
+
   async function analyzeBook(parsedItems: ReviewItem[], title: string) {
     setShowImport(false);
     setBookTitle(title.trim() || "Unbenanntes Buch");
@@ -486,13 +495,8 @@ export default function Home() {
             <h1>Braille QA Copilot</h1>
           </div>
         </div>
-        <nav className="stepper" aria-label="Arbeitsablauf">
-          <span className="step done"><b>1</b> Import</span>
-          <span className="step done"><b>2</b> Analyse</span>
-          <span className={`step ${openItems.length ? "active" : "done"}`} aria-current={openItems.length ? "step" : undefined}><b>3</b> Freigabe</span>
-        </nav>
-        <button className="button button-primary" type="button" onClick={() => setShowImport(true)}>
-          Neues Buch
+        <button className="button button-secondary" type="button" onClick={() => setShowImport(true)}>
+          Buch wechseln
         </button>
       </header>
 
@@ -516,9 +520,6 @@ export default function Home() {
           <p>{autoCount} unauffällige Abschnitte wurden automatisch geprüft. Sie können diese jederzeit über „Alle anzeigen“ stichprobenartig öffnen.</p>
         </div>
         <div className="outcome-actions">
-          <button className="button button-ghost" type="button" onClick={() => setShowAll((value) => !value)}>
-            {showAll ? "Nur offene zeigen" : "Alle anzeigen"}
-          </button>
           {openItems.length === 0 && (
             <button className="button button-primary" type="button" onClick={releaseBook}>
               Buch freigeben
@@ -527,55 +528,35 @@ export default function Home() {
         </div>
       </section>
 
-      <section className="summary-grid" aria-label="Prüfstatus">
-        <article className="metric metric-critical">
-          <span className="metric-icon" aria-hidden="true">!</span>
-          <div><strong>{highCount}</strong><span>Kritische Stellen</span></div>
-          <small>werden zuerst angezeigt</small>
-        </article>
-        <article className="metric">
-          <span className="metric-icon metric-icon-amber" aria-hidden="true">?</span>
-          <div><strong>{openItems.length}</strong><span>Entscheidungen offen</span></div>
-          <small>menschliche Prüfung erforderlich</small>
-        </article>
-        <article className="metric">
-          <span className="metric-icon metric-icon-green" aria-hidden="true">✓</span>
-          <div><strong>{autoCount}</strong><span>Automatisch geprüft</span></div>
-          <small>kein relevantes Risiko erkannt</small>
-        </article>
-        <article className="metric progress-card">
-          <div className="progress-copy"><strong>{progress}%</strong><span>Fertig</span></div>
-          <div className="progress-track" role="progressbar" aria-label="Prüffortschritt" aria-valuenow={progress} aria-valuemin={0} aria-valuemax={100}>
-            <span style={{ width: `${progress}%` }} />
-          </div>
-          <small>{completedCount} von {items.length} Abschnitten abgeschlossen</small>
-        </article>
+      <section className="focus-progress" aria-label="Prüffortschritt">
+        <div className="focus-progress-copy">
+          <strong>{progress}% abgeschlossen</strong>
+          <span>{completedCount} von {items.length} Abschnitten · {highCount} kritisch</span>
+        </div>
+        <div className="progress-track" role="progressbar" aria-label="Prüffortschritt" aria-valuenow={progress} aria-valuemin={0} aria-valuemax={100}>
+          <span style={{ width: `${progress}%` }} />
+        </div>
       </section>
 
-      <section className="workspace book-workspace" aria-label="Korrekturarbeitsplatz">
-        <aside className="chapter-list" aria-labelledby="chapter-title">
-          <div className="panel-heading compact-heading">
-            <div><p className="eyebrow">Navigation</p><h2 id="chapter-title">Kapitel</h2></div>
-          </div>
-          <nav aria-label="Kapitel auswählen">
-            <button className={selectedChapter === "all" ? "chapter-button selected" : "chapter-button"} type="button" onClick={() => setSelectedChapter("all")}>
-              <span><strong>Gesamtes Buch</strong><small>{items.length} Abschnitte</small></span>
-              <b>{openItems.length}</b>
-            </button>
-            {chapters.map((chapter) => (
-              <button className={selectedChapter === chapter.id ? "chapter-button selected" : "chapter-button"} type="button" onClick={() => setSelectedChapter(chapter.id)} key={chapter.id}>
-                <span><strong>{chapter.title}</strong><small>{chapter.count} Abschnitte</small></span>
-                <b className={chapter.open ? "" : "chapter-done"}>{chapter.open || "✓"}</b>
-              </button>
-            ))}
-          </nav>
-          <div className="privacy-note"><span aria-hidden="true">⌂</span><p><strong>Lokal gespeichert</strong>Der Buchtext verbleibt in dieser Sitzung. Für die OpenAI-Prüfung werden nur Analyseabschnitte serverseitig übertragen.</p></div>
-        </aside>
-
+      <section className="workspace focus-workspace" aria-label="Korrekturarbeitsplatz">
         <aside className="review-list" aria-labelledby="review-list-title">
-          <div className="panel-heading compact-heading">
-            <div><p className="eyebrow">Arbeitsliste</p><h2 id="review-list-title">{showAll ? "Alle Abschnitte" : "Nur offene Stellen"}</h2></div>
+          <div className="focus-list-heading">
+            <div><p className="eyebrow">Als Nächstes</p><h2 id="review-list-title">{showAll ? "Alle Abschnitte" : "Offene Stellen"}</h2></div>
             <span className="count-badge">{visibleItems.length}</span>
+          </div>
+          <div className="queue-controls">
+            <label htmlFor="chapter-filter">Kapitel</label>
+            <select id="chapter-filter" value={selectedChapter} onChange={(event) => chooseChapter(event.target.value)}>
+              <option value="all">Gesamtes Buch</option>
+              {chapters.map((chapter) => (
+                <option value={chapter.id} key={chapter.id}>
+                  {chapter.title} · {chapter.open} offen
+                </option>
+              ))}
+            </select>
+            <button type="button" aria-pressed={showAll} onClick={() => setShowAll((value) => !value)}>
+              {showAll ? "Nur offene" : "Alle anzeigen"}
+            </button>
           </div>
           <div className="queue" role="list">
             {visibleItems.map((item) => (
